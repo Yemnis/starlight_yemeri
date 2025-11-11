@@ -241,36 +241,47 @@ Keep descriptions concise. Focus on key advertising elements.`;
           maxOutputTokens: 1024, // Increased to ensure completion
           responseMimeType: 'application/json',
           // Define strict response schema to enforce complete JSON structure
+          // Using OpenAPI 3.0 schema format (Vertex AI requirement)
           responseSchema: {
-            type: 'object',
+            type: 'OBJECT',
             properties: {
-              description: { type: 'string' },
+              description: { 
+                type: 'STRING',
+                description: 'Brief scene description'
+              },
               visualElements: { 
-                type: 'array',
-                items: { type: 'string' }
+                type: 'ARRAY',
+                items: { type: 'STRING' }
               },
               actions: { 
-                type: 'array',
-                items: { type: 'string' }
+                type: 'ARRAY',
+                items: { type: 'STRING' }
               },
-              mood: { type: 'string' },
-              composition: { type: 'string' },
+              mood: { 
+                type: 'STRING',
+                description: 'Emotional tone of the scene'
+              },
+              composition: { 
+                type: 'STRING',
+                description: 'Camera shot type'
+              },
               product: { 
-                type: ['string', 'null'],
-                nullable: true
+                type: 'STRING',
+                nullable: true,
+                description: 'Product name if visible'
               },
               cta: { 
-                type: ['string', 'null'],
-                nullable: true
+                type: 'STRING',
+                nullable: true,
+                description: 'Call to action text if present'
               },
               colors: { 
-                type: 'array',
-                items: { type: 'string' }
+                type: 'ARRAY',
+                items: { type: 'STRING' }
               },
               confidence: { 
-                type: 'number',
-                minimum: 0,
-                maximum: 1
+                type: 'NUMBER',
+                description: 'Confidence score 0-1'
               }
             },
             required: ['description', 'visualElements', 'actions', 'mood', 'composition', 'colors', 'confidence']

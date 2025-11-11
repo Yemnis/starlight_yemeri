@@ -4,6 +4,7 @@
  */
 import { VertexAI } from '@google-cloud/vertexai';
 import { Firestore } from '@google-cloud/firestore';
+import { GoogleAuth } from 'google-auth-library';
 import { config } from '../config';
 import logger from '../utils/logger';
 import { Scene, VectorMetadata, EmbeddingData } from '../types';
@@ -11,6 +12,10 @@ import { Scene, VectorMetadata, EmbeddingData } from '../types';
 export class EmbeddingService {
   private vertexai: VertexAI;
   private firestore: Firestore;
+  private auth: GoogleAuth;
+  private lastEmbeddingRequestTime: number = 0;
+  private minDelayBetweenRequests: number = 1000; // Start with 1 second between requests
+  private consecutiveRateLimitErrors: number = 0;
 
   constructor() {
     this.vertexai = new VertexAI({
@@ -21,41 +26,111 @@ export class EmbeddingService {
       projectId: config.gcp.projectId,
       databaseId: config.firestore.database,
     });
+    this.auth = new GoogleAuth({
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
     logger.info('EmbeddingService initialized');
   }
 
   /**
    * Generate embedding for a single text string using Vertex AI Text Embeddings
+   * with automatic rate limiting and retry logic
    */
-  async generateEmbedding(text: string): Promise<number[]> {
+  async generateEmbedding(text: string, retryCount: number = 0): Promise<number[]> {
+    const maxRetries = 3;
     const startTime = Date.now();
 
+    // Implement rate limiting: ensure minimum delay between requests
+    const timeSinceLastRequest = Date.now() - this.lastEmbeddingRequestTime;
+    if (timeSinceLastRequest < this.minDelayBetweenRequests) {
+      const waitTime = this.minDelayBetweenRequests - timeSinceLastRequest;
+      logger.debug('Rate limiting: waiting before embedding request', {
+        operation: 'rate_limit',
+        waitTime,
+        minDelay: this.minDelayBetweenRequests,
+      });
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    this.lastEmbeddingRequestTime = Date.now();
+
     try {
-      // Use the text-embeddings API for generating embeddings
-      const textEmbeddingModel = this.vertexai.preview.getGenerativeModel({
-        model: config.vertexai.embeddingModel,
+      // Use the REST API directly to call the embeddings endpoint
+      // This bypasses the GenerateContent API that has stricter quotas
+      const client = await this.auth.getClient();
+      const accessToken = await client.getAccessToken();
+
+      // Map model names: text-embedding-004 -> textembedding-gecko@003 (the actual API model name)
+      // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/text-embeddings-api
+      const modelMap: Record<string, string> = {
+        'text-embedding-004': 'text-embedding-004',
+        'textembedding-gecko': 'textembedding-gecko@003',
+        'textembedding-gecko@001': 'textembedding-gecko@001',
+        'textembedding-gecko@002': 'textembedding-gecko@002',
+        'textembedding-gecko@003': 'textembedding-gecko@003',
+        'text-multilingual-embedding-002': 'text-multilingual-embedding-002',
+      };
+
+      const apiModel = modelMap[config.vertexai.embeddingModel] || config.vertexai.embeddingModel;
+      const endpoint = `https://${config.vertexai.location}-aiplatform.googleapis.com/v1/projects/${config.gcp.projectId}/locations/${config.vertexai.location}/publishers/google/models/${apiModel}:predict`;
+
+      logger.debug('Calling embedding API', {
+        operation: 'embedding_api_call',
+        model: apiModel,
+        endpoint: endpoint.replace(config.gcp.projectId, 'PROJECT_ID'), // Hide project ID in logs
       });
 
-      // For text-embedding-004, we need to use embedContent method
-      const result = await textEmbeddingModel.generateContent({
-        contents: [{ role: 'user', parts: [{ text }] }],
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          instances: [
+            {
+              content: text,
+              task_type: 'RETRIEVAL_QUERY', // For search queries
+            }
+          ],
+          parameters: {
+            autoTruncate: true,
+          },
+        }),
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Embedding API error: ${response.status} ${errorText}`);
+      }
+
+      const data = await response.json() as {
+        predictions?: Array<{
+          embeddings?: {
+            values?: number[];
+            statistics?: {
+              token_count?: number;
+              truncated?: boolean;
+            };
+          };
+        }>;
+      };
 
       // Extract embedding from response
-      let embeddingVector: number[];
-      
-      try {
-        // Try to get embeddings from the response
-        const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (responseText) {
-          embeddingVector = JSON.parse(responseText);
-        } else {
-          throw new Error('No embedding in response');
-        }
-      } catch (parseError) {
-        // Fallback: use a simple text-based embedding (TF-IDF style)
-        logger.warn('Using fallback embedding generation', { text: text.substring(0, 50) });
-        embeddingVector = this.generateFallbackEmbedding(text);
+      const embeddingVector = data.predictions?.[0]?.embeddings?.values;
+
+      if (!embeddingVector || embeddingVector.length === 0) {
+        throw new Error('No embedding in response');
+      }
+
+      // Success! Reset rate limit error counter and reduce delay if it was increased
+      this.consecutiveRateLimitErrors = 0;
+      if (this.minDelayBetweenRequests > 1000) {
+        this.minDelayBetweenRequests = Math.max(1000, this.minDelayBetweenRequests * 0.9);
+        logger.debug('Reduced embedding rate limit delay', {
+          operation: 'rate_limit_decrease',
+          newDelay: this.minDelayBetweenRequests,
+        });
       }
 
       const duration = Date.now() - startTime;
@@ -64,16 +139,46 @@ export class EmbeddingService {
         textLength: text.length,
         embeddingDim: embeddingVector.length,
         duration,
+        retryCount,
       });
 
       return embeddingVector;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const is429 = errorMessage.includes('429') || errorMessage.includes('Too Many Requests') || errorMessage.includes('RESOURCE_EXHAUSTED');
+
+      if (is429) {
+        this.consecutiveRateLimitErrors++;
+
+        // Increase delay for future requests (adaptive rate limiting)
+        this.minDelayBetweenRequests = Math.min(10000, this.minDelayBetweenRequests * 2);
+
+        logger.warn('Rate limit hit, increasing delay', {
+          operation: 'rate_limit_increase',
+          newDelay: this.minDelayBetweenRequests,
+          consecutiveErrors: this.consecutiveRateLimitErrors,
+        });
+
+        // Retry with exponential backoff if we haven't exceeded max retries
+        if (retryCount < maxRetries) {
+          const backoffMs = Math.pow(2, retryCount) * 3000; // 3s, 6s, 12s
+          logger.info(`Retrying embedding generation after ${backoffMs}ms`, {
+            operation: 'embedding_retry',
+            retryCount: retryCount + 1,
+          });
+
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+          return this.generateEmbedding(text, retryCount + 1);
+        }
+      }
+
       logger.error('Failed to generate embedding, using fallback', {
         operation: 'generate_embedding',
         textLength: text.length,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
+        retryCount,
       });
-      
+
       // Use fallback embedding generation
       return this.generateFallbackEmbedding(text);
     }
@@ -120,14 +225,18 @@ export class EmbeddingService {
 
   /**
    * Generate embeddings for multiple texts in batch
+   * Processes sequentially to respect rate limits
    */
   async batchGenerateEmbeddings(texts: string[]): Promise<number[][]> {
     const startTime = Date.now();
 
     try {
-      const embeddings = await Promise.all(
-        texts.map(text => this.generateEmbedding(text))
-      );
+      // Process sequentially - rate limiting is handled in generateEmbedding()
+      const embeddings: number[][] = [];
+      for (const text of texts) {
+        const embedding = await this.generateEmbedding(text);
+        embeddings.push(embedding);
+      }
 
       const duration = Date.now() - startTime;
       logger.info('Batch embeddings generated', {
@@ -379,31 +488,37 @@ export class EmbeddingService {
   }
 
   /**
-   * Process multiple scenes in batch
+   * Process multiple scenes in batch with adaptive rate limiting
+   * Rate limiting is now handled automatically in generateEmbedding()
    */
   async batchProcessScenes(scenes: Scene[]): Promise<Map<string, string>> {
     const startTime = Date.now();
     const results = new Map<string, string>();
 
     try {
-      // Process scenes with delay to avoid rate limits
+      logger.info('Starting batch embedding generation', {
+        operation: 'batch_process_scenes',
+        count: scenes.length,
+        initialDelay: this.minDelayBetweenRequests,
+      });
+
+      // Process scenes sequentially - rate limiting is handled in generateEmbedding()
       for (let i = 0; i < scenes.length; i++) {
         const scene = scenes[i];
-        
-        // Add delay between embedding requests to avoid rate limiting (200ms between requests)
-        if (i > 0) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-        
         const { embeddingId } = await this.processScene(scene);
         results.set(scene.id, embeddingId);
       }
 
       const duration = Date.now() - startTime;
+      const avgTimePerScene = duration / scenes.length;
+      
       logger.info('Batch scene embeddings processed', {
         operation: 'batch_process_scenes',
         count: scenes.length,
         duration,
+        avgTimePerScene: Math.round(avgTimePerScene),
+        finalDelay: this.minDelayBetweenRequests,
+        rateLimitErrors: this.consecutiveRateLimitErrors,
       });
 
       return results;
