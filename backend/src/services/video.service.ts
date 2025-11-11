@@ -87,10 +87,29 @@ export class VideoService {
    * Update video progress
    */
   async updateProgress(videoId: string, progress: Partial<VideoProgress>): Promise<void> {
-    await this.firestore.collection('videos').doc(videoId).update({
-      progress,
+    // Use Firestore field paths to properly merge nested progress object
+    const updateData: any = {
       updatedAt: new Date(),
-    });
+    };
+
+    // Convert progress fields to Firestore field paths
+    if (progress.metadata !== undefined) {
+      updateData['progress.metadata'] = progress.metadata;
+    }
+    if (progress.transcription !== undefined) {
+      updateData['progress.transcription'] = progress.transcription;
+    }
+    if (progress.sceneDetection !== undefined) {
+      updateData['progress.sceneDetection'] = progress.sceneDetection;
+    }
+    if (progress.sceneAnalysis !== undefined) {
+      updateData['progress.sceneAnalysis'] = progress.sceneAnalysis;
+    }
+    if (progress.embeddings !== undefined) {
+      updateData['progress.embeddings'] = progress.embeddings;
+    }
+
+    await this.firestore.collection('videos').doc(videoId).update(updateData);
 
     logger.debug('Video progress updated', {
       operation: 'update_progress',

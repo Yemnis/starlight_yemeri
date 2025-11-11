@@ -69,6 +69,11 @@ export const VideoUpload = ({ campaignId, onUploadComplete }: VideoUploadProps) 
     pollIntervalRef.current = window.setInterval(async () => {
       try {
         const video = await apiService.getVideo(id);
+        console.log('Polling video status:', {
+          videoId: id,
+          status: video.status,
+          progress: video.progress
+        });
         setProcessingStatus(video);
 
         if (video.status === 'completed' || video.status === 'failed') {
