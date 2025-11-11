@@ -185,22 +185,20 @@ export class SceneService {
     const maxRetries = 2;
 
     try {
-      const prompt = `Analyze this advertising video scene. Transcript: "${transcript}"
+      const prompt = `Analyze this ad scene. Transcript: "${transcript}"
 
-Provide detailed JSON analysis:
-{
-  "description": "2-3 sentences describing what's visible and happening",
-  "visualElements": ["array", "of", "visible", "objects"],
-  "actions": ["array", "of", "activities"],
-  "mood": "emotional tone (energetic/calm/professional/playful)",
-  "composition": "shot type and camera angle",
-  "product": "product name if visible, else null",
-  "cta": "call to action text if present, else null",
-  "colors": ["dominant", "color", "palette"],
-  "confidence": 0.0-1.0
-}
+Return JSON with:
+- description: brief 1-2 sentence summary
+- visualElements: key visible objects/people (max 5)
+- actions: main activities (max 3)
+- mood: tone (energetic/calm/professional/playful)
+- composition: shot type
+- product: name if visible, else null
+- cta: call-to-action text if present, else null
+- colors: 2-3 dominant colors
+- confidence: 0.0-1.0
 
-Be specific and detailed. Focus on advertising-relevant elements. Return ONLY valid JSON, no markdown.`;
+Keep descriptions concise. Focus on key advertising elements.`;
 
       // Determine if URL is gs:// or https:// and construct the appropriate request
       let imagePart: any;
@@ -240,13 +238,69 @@ Be specific and detailed. Focus on advertising-relevant elements. Return ONLY va
           temperature: 0.3,
           topK: 40,
           topP: 0.95,
-          maxOutputTokens: 800,
+          maxOutputTokens: 1024, // Increased to ensure completion
           responseMimeType: 'application/json',
+          // Define strict response schema to enforce complete JSON structure
+          responseSchema: {
+            type: 'object',
+            properties: {
+              description: { type: 'string' },
+              visualElements: { 
+                type: 'array',
+                items: { type: 'string' }
+              },
+              actions: { 
+                type: 'array',
+                items: { type: 'string' }
+              },
+              mood: { type: 'string' },
+              composition: { type: 'string' },
+              product: { 
+                type: ['string', 'null'],
+                nullable: true
+              },
+              cta: { 
+                type: ['string', 'null'],
+                nullable: true
+              },
+              colors: { 
+                type: 'array',
+                items: { type: 'string' }
+              },
+              confidence: { 
+                type: 'number',
+                minimum: 0,
+                maximum: 1
+              }
+            },
+            required: ['description', 'visualElements', 'actions', 'mood', 'composition', 'colors', 'confidence']
+          }
         },
       };
 
       const response = await this.generativeModel.generateContent(request);
-      const resultText = response.response.candidates[0].content.parts[0].text;
+      
+      // Check for safety filters or incomplete responses
+      const candidate = response.response.candidates[0];
+      if (!candidate || !candidate.content || !candidate.content.parts || !candidate.content.parts[0]) {
+        logger.error('Incomplete response from Gemini', {
+          operation: 'analyze_scene',
+          finishReason: candidate?.finishReason,
+          safetyRatings: candidate?.safetyRatings,
+        });
+        throw new Error(`Incomplete response: ${candidate?.finishReason || 'Unknown reason'}`);
+      }
+      
+      const resultText = candidate.content.parts[0].text;
+      
+      // Log finish reason for debugging truncation issues
+      if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+        logger.warn('Non-standard finish reason detected', {
+          operation: 'analyze_scene',
+          finishReason: candidate.finishReason,
+          responseLength: resultText.length,
+        });
+      }
       
       // Parse with robust error handling
       const analysis = this.parseSceneAnalysis(resultText);
