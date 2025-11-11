@@ -13,7 +13,7 @@ export const Chat = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: 'Hello! How can I help you with your campaigns today?',
+      text: 'Hello! I\'m your AI assistant. Ask me anything about your campaigns, videos, or scenes once you upload some content!',
       sender: 'ai',
       timestamp: new Date(),
     },
@@ -22,23 +22,8 @@ export const Chat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Initialize conversation on mount
-  useEffect(() => {
-    const initConversation = async () => {
-      try {
-        const conversation = await apiService.createConversation();
-        setConversationId(conversation.id);
-        console.log('Conversation created:', conversation.id);
-      } catch (err) {
-        console.error('Failed to create conversation:', err);
-        setError('Failed to connect to the server. Please check if the backend is running.');
-      }
-    };
-
-    initConversation();
-  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -50,11 +35,7 @@ export const Chat = () => {
 
   const handleSend = async () => {
     if (!inputValue.trim()) return;
-    if (!conversationId) {
-      setError('No active conversation. Please refresh the page.');
-      return;
-    }
-
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       text: inputValue,
@@ -69,8 +50,29 @@ export const Chat = () => {
     setError(null);
 
     try {
+      // Create conversation if it doesn't exist yet
+      let activeConversationId = conversationId;
+      if (!activeConversationId && !isInitializing) {
+        setIsInitializing(true);
+        try {
+          const conversation = await apiService.createConversation();
+          activeConversationId = conversation.id;
+          setConversationId(activeConversationId);
+          console.log('Conversation created:', activeConversationId);
+        } catch (convErr) {
+          console.error('Failed to create conversation:', convErr);
+          throw new Error('Unable to connect to chat service. Please check if the backend is running.');
+        } finally {
+          setIsInitializing(false);
+        }
+      }
+
+      if (!activeConversationId) {
+        throw new Error('No active conversation available.');
+      }
+
       // Send message to backend
-      const response = await apiService.sendMessage(conversationId, currentInput);
+      const response = await apiService.sendMessage(activeConversationId, currentInput);
       
       const aiMessage: Message = {
         id: response.messageId || (Date.now() + 1).toString(),
@@ -82,12 +84,13 @@ export const Chat = () => {
       setMessages((prev) => [...prev, aiMessage]);
     } catch (err) {
       console.error('Failed to send message:', err);
-      setError('Failed to get response from AI. Please try again.');
+      const errorMsg = err instanceof Error ? err.message : 'Failed to get response from AI. Please try again.';
+      setError(errorMsg);
       
       // Add error message to chat
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: 'Sorry, I encountered an error. Please try again or check your connection.',
+        text: `Sorry, I encountered an error: ${errorMsg}`,
         sender: 'ai',
         timestamp: new Date(),
       };
@@ -108,7 +111,14 @@ export const Chat = () => {
     <div className="chat-container">
       {error && (
         <div className="chat-error">
-          {error}
+          <span>{error}</span>
+          <button 
+            className="error-dismiss"
+            onClick={() => setError(null)}
+            title="Dismiss"
+          >
+            ✕
+          </button>
         </div>
       )}
       <div className="chat-messages">
@@ -143,12 +153,12 @@ export const Chat = () => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyPress={handleKeyPress}
-          disabled={isLoading || !conversationId}
+          disabled={isLoading}
         />
         <button 
           className="send-button" 
           onClick={handleSend}
-          disabled={isLoading || !conversationId}
+          disabled={isLoading}
         >
           <svg
             width="20"

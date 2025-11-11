@@ -1,96 +1,152 @@
 .app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: 100vh;
   width: 100%;
-  overflow: hidden;
+  background: #0f0f1e;
 }
 
 .app-header {
-  background: linear-gradient(135deg, rgba(100, 108, 255, 0.2) 0%, rgba(83, 91, 242, 0.1) 100%);
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 1.25rem 2rem;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10;
 }
 
-.app-header h1 {
+.header-content {
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.logo svg {
+  color: white;
+}
+
+.logo h1 {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #646cff 0%, #a855f7 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: white;
 }
 
-.app-header p {
-  margin: 0.25rem 0 0 0;
+.header-content p {
+  margin: 0;
   font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.9);
+  padding-left: 2.5rem;
 }
 
 .app-main {
+  display: grid;
+  grid-template-columns: 280px 1fr 380px;
+  gap: 0;
   flex: 1;
+  overflow: hidden;
+  max-width: 1800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.app-sidebar-left {
+  background: #1a1a2e;
+  border-right: 1px solid #2a2a3e;
+  overflow-y: auto;
+  height: calc(100vh - 76px);
+}
+
+.app-content {
+  background: #0f0f1e;
+  overflow-y: auto;
+  height: calc(100vh - 76px);
+}
+
+.app-sidebar-right {
+  background: #1a1a2e;
+  border-left: 1px solid #2a2a3e;
+  overflow: hidden;
+  height: calc(100vh - 76px);
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+}
+
+.chat-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.chat-header {
   padding: 1.5rem;
-  overflow: hidden;
+  border-bottom: 1px solid #2a2a3e;
+  background: #16213e;
 }
 
-.campaign-section {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+.chat-header h2 {
+  margin: 0 0 0.25rem 0;
+  color: #fff;
+  font-size: 1.125rem;
+  font-weight: 600;
 }
 
-.chat-section {
-  height: 300px;
-  min-height: 250px;
-  max-height: 400px;
+.chat-header p {
+  margin: 0;
+  color: #8b8ba7;
+  font-size: 0.875rem;
 }
 
-/* Responsive layout */
-@media (max-width: 768px) {
-  .app-header {
-    padding: 1rem 1.5rem;
-  }
-
-  .app-header h1 {
-    font-size: 1.5rem;
-  }
-
+/* Responsive Design */
+@media (max-width: 1400px) {
   .app-main {
-    padding: 1rem;
-    gap: 1rem;
-  }
-
-  .chat-section {
-    height: 250px;
+    grid-template-columns: 260px 1fr 360px;
   }
 }
 
-/* Custom scrollbar for the app */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05);
+@media (max-width: 1200px) {
+  .app-main {
+    grid-template-columns: 240px 1fr 340px;
+  }
 }
 
-*::-webkit-scrollbar {
+@media (max-width: 1024px) {
+  .app-main {
+    grid-template-columns: 1fr;
+  }
+  
+  .app-sidebar-left,
+  .app-sidebar-right {
+    display: none;
+  }
+  
+  .app-content {
+    height: auto;
+  }
+}
+
+/* Scrollbar Styling */
+.app-sidebar-left::-webkit-scrollbar,
+.app-content::-webkit-scrollbar {
   width: 8px;
-  height: 8px;
 }
 
-*::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+.app-sidebar-left::-webkit-scrollbar-track,
+.app-content::-webkit-scrollbar-track {
+  background: #16213e;
+}
+
+.app-sidebar-left::-webkit-scrollbar-thumb,
+.app-content::-webkit-scrollbar-thumb {
+  background: #2a2a3e;
   border-radius: 4px;
 }
 
-*::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+.app-sidebar-left::-webkit-scrollbar-thumb:hover,
+.app-content::-webkit-scrollbar-thumb:hover {
+  background: #3a3a4e;
 }
