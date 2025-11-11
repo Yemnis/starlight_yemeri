@@ -6,6 +6,16 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   overflow: hidden;
+  position: relative;
+}
+
+.chat-error {
+  background-color: rgba(220, 38, 38, 0.2);
+  color: #fca5a5;
+  padding: 12px;
+  border-bottom: 1px solid rgba(220, 38, 38, 0.3);
+  font-size: 14px;
+  text-align: center;
 }
 
 .chat-messages {
@@ -124,6 +134,30 @@
 
 .send-button svg {
   display: block;
+}
+
+.send-button:disabled,
+.chat-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.send-button:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.loading-indicator {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* Scrollbar styling */

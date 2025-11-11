@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { apiService } from '../services/api';
 import './Chat.css';
 
 interface Message {
@@ -18,7 +19,26 @@ export const Chat = () => {
     },
   ]);
   const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Initialize conversation on mount
+  useEffect(() => {
+    const initConversation = async () => {
+      try {
+        const conversation = await apiService.createConversation();
+        setConversationId(conversation.id);
+        console.log('Conversation created:', conversation.id);
+      } catch (err) {
+        console.error('Failed to create conversation:', err);
+        setError('Failed to connect to the server. Please check if the backend is running.');
+      }
+    };
+
+    initConversation();
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -28,8 +48,12 @@ export const Chat = () => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputValue.trim()) return;
+    if (!conversationId) {
+      setError('No active conversation. Please refresh the page.');
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -39,18 +63,38 @@ export const Chat = () => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const currentInput = inputValue;
     setInputValue('');
+    setIsLoading(true);
+    setError(null);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      // Send message to backend
+      const response = await apiService.sendMessage(conversationId, currentInput);
+      
       const aiMessage: Message = {
+        id: response.messageId || (Date.now() + 1).toString(),
+        text: response.response,
+        sender: 'ai',
+        timestamp: new Date(response.timestamp || new Date()),
+      };
+      
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      setError('Failed to get response from AI. Please try again.');
+      
+      // Add error message to chat
+      const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: `I understand you said: "${inputValue}". This is a demo response. In a real application, this would connect to your backend AI service.`,
+        text: 'Sorry, I encountered an error. Please try again or check your connection.',
         sender: 'ai',
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, aiMessage]);
-    }, 1000);
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -62,6 +106,11 @@ export const Chat = () => {
 
   return (
     <div className="chat-container">
+      {error && (
+        <div className="chat-error">
+          {error}
+        </div>
+      )}
       <div className="chat-messages">
         {messages.map((message) => (
           <div key={message.id} className={`message ${message.sender}`}>
@@ -76,6 +125,13 @@ export const Chat = () => {
             </div>
           </div>
         ))}
+        {isLoading && (
+          <div className="message ai">
+            <div className="message-content">
+              <p className="loading-indicator">Thinking...</p>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -87,8 +143,13 @@ export const Chat = () => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyPress={handleKeyPress}
+          disabled={isLoading || !conversationId}
         />
-        <button className="send-button" onClick={handleSend}>
+        <button 
+          className="send-button" 
+          onClick={handleSend}
+          disabled={isLoading || !conversationId}
+        >
           <svg
             width="20"
             height="20"
