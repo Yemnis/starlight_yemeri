@@ -340,7 +340,7 @@ export class EmbeddingService {
       // Generate embedding
       const embedding = await this.generateEmbedding(embeddingText);
 
-      // Prepare metadata
+      // Prepare metadata - filter out undefined values for Firestore
       const metadata: VectorMetadata = {
         videoId: scene.videoId,
         campaignId: scene.campaignId,
@@ -350,9 +350,13 @@ export class EmbeddingService {
         description: scene.description,
         transcript: scene.transcript,
         visualElements: scene.analysis.visualElements,
-        product: scene.analysis.product,
         mood: scene.analysis.mood,
       };
+
+      // Only add product if it's defined (Firestore doesn't allow undefined)
+      if (scene.analysis.product !== undefined && scene.analysis.product !== null) {
+        metadata.product = scene.analysis.product;
+      }
 
       // Store in vector index
       const embeddingId = await this.storeEmbedding(scene.id, embedding, metadata);
@@ -382,7 +386,15 @@ export class EmbeddingService {
     const results = new Map<string, string>();
 
     try {
-      for (const scene of scenes) {
+      // Process scenes with delay to avoid rate limits
+      for (let i = 0; i < scenes.length; i++) {
+        const scene = scenes[i];
+        
+        // Add delay between embedding requests to avoid rate limiting (200ms between requests)
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
         const { embeddingId } = await this.processScene(scene);
         results.set(scene.id, embeddingId);
       }

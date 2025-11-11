@@ -243,6 +243,13 @@ export class VideoService {
           this.storageService.uploadFile(thumbnailPath, thumbnailGcsPath),
         ]);
 
+        // Generate signed URL for thumbnail to use with Vertex AI (avoids permission issues)
+        // Signed URL is valid for 1 hour and doesn't require service account permissions
+        const thumbnailSignedUrl = await this.storageService.generateSignedUrl(
+          thumbnailGcsPath,
+          3600 // 1 hour
+        );
+
         // Map transcript to scene
         const sceneTranscript = this.sceneService.mapTranscriptToScene(
           transcription,
@@ -250,8 +257,8 @@ export class VideoService {
           scene.endTime
         );
 
-        // Analyze scene with Gemini
-        const analysis = await this.sceneService.analyzeScene(thumbnailUrl, sceneTranscript);
+        // Analyze scene with Gemini using signed URL
+        const analysis = await this.sceneService.analyzeScene(thumbnailSignedUrl, sceneTranscript);
 
         // Create scene record with analysis
         const sceneRecord: Scene = {
