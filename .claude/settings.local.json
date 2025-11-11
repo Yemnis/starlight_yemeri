@@ -6,7 +6,8 @@
       "Bash(echo:*)",
       "Bash(src/app.ts)",
       "Bash(git checkout:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

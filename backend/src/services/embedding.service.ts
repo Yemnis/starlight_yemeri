@@ -402,10 +402,18 @@ export class EmbeddingService {
       const results: Array<{ sceneId: string; similarity: number; metadata: VectorMetadata }> = [];
 
       // Calculate similarity for each embedding
+      const allSimilarities: Array<{ sceneId: string; similarity: number; description: string }> = [];
+
       snapshot.forEach(doc => {
         const data = doc.data();
         const similarity = this.cosineSimilarity(queryEmbedding, data.embedding);
-        
+
+        allSimilarities.push({
+          sceneId: data.sceneId,
+          similarity,
+          description: data.metadata?.description?.substring(0, 50) || 'No description',
+        });
+
         if (similarity >= minSimilarity) {
           results.push({
             sceneId: data.sceneId,
@@ -413,6 +421,17 @@ export class EmbeddingService {
             metadata: data.metadata,
           });
         }
+      });
+
+      // Log top 5 similarities for debugging
+      const topSimilarities = allSimilarities
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, 5);
+
+      logger.debug('Top similarity scores', {
+        operation: 'search_similar_embeddings',
+        topScores: topSimilarities,
+        threshold: minSimilarity,
       });
 
       // Sort by similarity descending and limit results

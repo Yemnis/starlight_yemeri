@@ -120,7 +120,7 @@ export class SearchService {
       queryEmbedding,
       options.limit || 20,
       options.campaignId,
-      0.3 // minimum similarity threshold
+      0.0 // minimum similarity threshold - show all results for debugging
     );
 
     // Fetch scene documents
