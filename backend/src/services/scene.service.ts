@@ -12,6 +12,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { promisify } from 'util';
+import https from 'https';
+import http from 'http';
 
 const unlink = promisify(fs.unlink);
 const mkdir = promisify(fs.mkdir);
@@ -178,8 +180,9 @@ export class SceneService {
   /**
    * Analyze scene using Gemini 2.5 Flash with vision capabilities
    */
-  async analyzeScene(thumbnailUrl: string, transcript: string): Promise<SceneAnalysis> {
+  async analyzeScene(thumbnailUrl: string, transcript: string, retryCount: number = 0): Promise<SceneAnalysis> {
     const startTime = Date.now();
+    const maxRetries = 2;
 
     try {
       const prompt = `Analyze this advertising video scene. Transcript: "${transcript}"
@@ -197,19 +200,36 @@ Provide detailed JSON analysis:
   "confidence": 0.0-1.0
 }
 
-Be specific and detailed. Focus on advertising-relevant elements.`;
+Be specific and detailed. Focus on advertising-relevant elements. Return ONLY valid JSON, no markdown.`;
+
+      // Determine if URL is gs:// or https:// and construct the appropriate request
+      let imagePart: any;
+      
+      if (thumbnailUrl.startsWith('gs://')) {
+        // Use fileUri for GCS URIs
+        imagePart = {
+          fileData: {
+            mimeType: 'image/jpeg',
+            fileUri: thumbnailUrl,
+          },
+        };
+      } else {
+        // For HTTPS URLs (signed URLs), fetch and use inlineData with base64
+        const imageBase64 = await this.fetchImageAsBase64(thumbnailUrl);
+        imagePart = {
+          inlineData: {
+            mimeType: 'image/jpeg',
+            data: imageBase64,
+          },
+        };
+      }
 
       const request = {
         contents: [
           {
             role: 'user',
             parts: [
-              {
-                fileData: {
-                  mimeType: 'image/jpeg',
-                  fileUri: thumbnailUrl,
-                },
-              },
+              imagePart,
               {
                 text: prompt,
               },
@@ -220,18 +240,20 @@ Be specific and detailed. Focus on advertising-relevant elements.`;
           temperature: 0.3,
           topK: 40,
           topP: 0.95,
-          maxOutputTokens: 500,
+          maxOutputTokens: 800,
           responseMimeType: 'application/json',
         },
       };
 
       const response = await this.generativeModel.generateContent(request);
       const resultText = response.response.candidates[0].content.parts[0].text;
-      const analysis: SceneAnalysis = JSON.parse(resultText);
+      
+      // Parse with robust error handling
+      const analysis = this.parseSceneAnalysis(resultText);
 
       // Validate required fields
       if (!analysis.visualElements || !analysis.mood || !analysis.composition) {
-        throw new Error('Invalid analysis response from Gemini');
+        throw new Error('Invalid analysis response from Gemini - missing required fields');
       }
 
       const duration = Date.now() - startTime;
@@ -239,17 +261,38 @@ Be specific and detailed. Focus on advertising-relevant elements.`;
         operation: 'analyze_scene',
         confidence: analysis.confidence,
         duration,
+        retryCount,
       });
 
       return analysis;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
       logger.error('Scene analysis failed', {
         operation: 'analyze_scene',
-        thumbnailUrl,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        thumbnailUrl: thumbnailUrl.substring(0, 100), // Truncate long signed URL
+        error: errorMessage,
+        retryCount,
       });
 
-      // Return fallback analysis
+      // Retry with exponential backoff for transient errors
+      if (retryCount < maxRetries && this.isRetryableError(errorMessage)) {
+        const backoffMs = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+        logger.info(`Retrying scene analysis after ${backoffMs}ms`, {
+          operation: 'analyze_scene_retry',
+          retryCount: retryCount + 1,
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        return this.analyzeScene(thumbnailUrl, transcript, retryCount + 1);
+      }
+
+      // Return fallback analysis after exhausting retries
+      logger.warn('Returning fallback analysis', {
+        operation: 'analyze_scene',
+        retryCount,
+      });
+      
       return {
         description: 'Scene analysis unavailable',
         visualElements: [],
@@ -260,6 +303,111 @@ Be specific and detailed. Focus on advertising-relevant elements.`;
         confidence: 0,
       };
     }
+  }
+
+  /**
+   * Robust JSON parser that handles common issues with LLM responses
+   */
+  private parseSceneAnalysis(text: string): SceneAnalysis {
+    try {
+      // Clean the response text
+      let cleanedText = text.trim();
+      
+      // Remove markdown code blocks if present
+      cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+      cleanedText = cleanedText.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+      
+      // Try to find JSON object bounds if response includes extra text
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanedText = jsonMatch[0];
+      }
+      
+      // Parse the cleaned JSON
+      const parsed = JSON.parse(cleanedText);
+      
+      // Ensure all required fields have valid values
+      return {
+        description: parsed.description || 'No description available',
+        visualElements: Array.isArray(parsed.visualElements) ? parsed.visualElements : [],
+        actions: Array.isArray(parsed.actions) ? parsed.actions : [],
+        mood: parsed.mood || 'neutral',
+        composition: parsed.composition || 'medium shot',
+        product: parsed.product || null,
+        cta: parsed.cta || null,
+        colors: Array.isArray(parsed.colors) ? parsed.colors : [],
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+      };
+    } catch (parseError) {
+      // Log the actual response that failed to parse for debugging
+      logger.error('Failed to parse scene analysis JSON', {
+        operation: 'parse_scene_analysis',
+        error: parseError instanceof Error ? parseError.message : 'Unknown error',
+        responsePreview: text.substring(0, 200), // First 200 chars for debugging
+        responseLength: text.length,
+      });
+      
+      throw new Error(`JSON parsing failed: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Determine if an error is worth retrying
+   */
+  private isRetryableError(errorMessage: string): boolean {
+    const retryablePatterns = [
+      /json/i,
+      /parse/i,
+      /timeout/i,
+      /network/i,
+      /503/i,
+      /429/i, // Rate limit
+      /500/i, // Server error
+    ];
+    
+    return retryablePatterns.some(pattern => pattern.test(errorMessage));
+  }
+
+  /**
+   * Fetch image from URL and convert to base64
+   * This is required for HTTPS URLs since Vertex AI's fileUri only supports gs:// URIs
+   */
+  private async fetchImageAsBase64(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const client = url.startsWith('https:') ? https : http;
+      
+      client.get(url, (response) => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to fetch image: HTTP ${response.statusCode}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        
+        response.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        
+        response.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          const base64 = buffer.toString('base64');
+          
+          logger.debug('Image fetched and encoded', {
+            operation: 'fetch_image_base64',
+            url: url.substring(0, 100),
+            sizeBytes: buffer.length,
+          });
+          
+          resolve(base64);
+        });
+        
+        response.on('error', (err) => {
+          reject(new Error(`Failed to fetch image: ${err.message}`));
+        });
+      }).on('error', (err) => {
+        reject(new Error(`Failed to fetch image: ${err.message}`));
+      });
+    });
   }
 
   /**
