@@ -143,11 +143,55 @@ app.use(errorHandler);
 const PORT = config.port;
 
 if (require.main === module) {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     logger.info(`Server started on port ${PORT}`, {
       env: config.env,
       port: PORT,
     });
+  });
+
+  // Handle EADDRINUSE error
+  server.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.error(`Port ${PORT} is already in use. Please stop the existing process or use a different port.`, {
+        error: error.message,
+        port: PORT,
+      });
+      process.exit(1);
+    } else {
+      logger.error('Server error occurred', { error: error.message });
+      throw error;
+    }
+  });
+
+  // Graceful shutdown handlers
+  const gracefulShutdown = (signal: string) => {
+    logger.info(`${signal} signal received: closing HTTP server gracefully`);
+    server.close(() => {
+      logger.info('HTTP server closed');
+      process.exit(0);
+    });
+
+    // Force shutdown after timeout
+    setTimeout(() => {
+      logger.error('Could not close connections in time, forcefully shutting down');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error: Error) => {
+    logger.error('Uncaught exception', { error: error.message, stack: error.stack });
+    gracefulShutdown('UNCAUGHT_EXCEPTION');
+  });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason: any) => {
+    logger.error('Unhandled rejection', { reason });
+    gracefulShutdown('UNHANDLED_REJECTION');
   });
 }
 
