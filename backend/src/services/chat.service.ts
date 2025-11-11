@@ -1,24 +1,26 @@
 /**
  * Chat Service - Handles conversational AI with RAG (Retrieval-Augmented Generation)
- * Manages chat conversations and generates responses using Gemini Pro with retrieved context
+ * Manages chat conversations and generates responses using Gemini Pro with function calling
  */
 import { Firestore } from '@google-cloud/firestore';
-import { VertexAI } from '@google-cloud/vertexai';
+import { VertexAI, FunctionDeclarationSchemaType } from '@google-cloud/vertexai';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import logger from '../utils/logger';
 import { ChatConversation, ChatMessage, Scene } from '../types';
 import { SearchService } from './search.service';
+import { CampaignService } from './campaign.service';
 
 export class ChatService {
   private firestore: Firestore | null = null;
   private vertexai: VertexAI | null = null;
   private generativeModel: any;
   private searchService: SearchService;
+  private campaignService: CampaignService;
   private useInMemoryStore: boolean = false;
   private inMemoryConversations: Map<string, ChatConversation> = new Map();
 
-  constructor(searchService: SearchService) {
+  constructor(searchService: SearchService, campaignService: CampaignService) {
     try {
       this.firestore = new Firestore({
         projectId: config.gcp.projectId,
@@ -41,7 +43,239 @@ export class ChatService {
       this.vertexai = null;
     }
     this.searchService = searchService;
+    this.campaignService = campaignService;
     logger.info('ChatService initialized');
+  }
+
+  /**
+   * Define function declarations for Gemini function calling
+   */
+  private getFunctionDeclarations() {
+    return [
+      {
+        name: 'count_campaigns',
+        description: 'Get the total number of campaigns in the system',
+        parameters: {
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {},
+          required: [],
+        },
+      },
+      {
+        name: 'list_campaigns',
+        description: 'Get a list of all campaigns with their names and metadata',
+        parameters: {
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            limit: {
+              type: FunctionDeclarationSchemaType.NUMBER,
+              description: 'Maximum number of campaigns to return (default: 50)',
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'get_campaign_details',
+        description: 'Get detailed information about a specific campaign including stats',
+        parameters: {
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            campaignId: {
+              type: FunctionDeclarationSchemaType.STRING,
+              description: 'The ID of the campaign to get details for',
+            },
+          },
+          required: ['campaignId'],
+        },
+      },
+      {
+        name: 'get_campaign_analytics',
+        description: 'Get analytics and statistics for a campaign (scenes, moods, products, visual elements)',
+        parameters: {
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            campaignId: {
+              type: FunctionDeclarationSchemaType.STRING,
+              description: 'The ID of the campaign to analyze',
+            },
+          },
+          required: ['campaignId'],
+        },
+      },
+      {
+        name: 'search_scenes',
+        description: 'Search for video scenes by content, visual elements, or semantic meaning',
+        parameters: {
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            query: {
+              type: FunctionDeclarationSchemaType.STRING,
+              description: 'The search query describing what scenes to find',
+            },
+            campaignId: {
+              type: FunctionDeclarationSchemaType.STRING,
+              description: 'Optional campaign ID to limit search to specific campaign',
+            },
+            limit: {
+              type: FunctionDeclarationSchemaType.NUMBER,
+              description: 'Maximum number of scenes to return (default: 10)',
+            },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'count_videos',
+        description: 'Count total number of videos across all campaigns or in a specific campaign',
+        parameters: {
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            campaignId: {
+              type: FunctionDeclarationSchemaType.STRING,
+              description: 'Optional campaign ID to count videos for specific campaign',
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'count_scenes',
+        description: 'Count total number of scenes across all campaigns or in a specific campaign',
+        parameters: {
+          type: FunctionDeclarationSchemaType.OBJECT,
+          properties: {
+            campaignId: {
+              type: FunctionDeclarationSchemaType.STRING,
+              description: 'Optional campaign ID to count scenes for specific campaign',
+            },
+          },
+          required: [],
+        },
+      },
+    ];
+  }
+
+  /**
+   * Execute a function call from Gemini
+   */
+  private async executeFunction(functionName: string, args: any): Promise<any> {
+    logger.info('Executing function', {
+      operation: 'execute_function',
+      functionName,
+      args,
+    });
+
+    try {
+      switch (functionName) {
+        case 'count_campaigns': {
+          const campaigns = await this.campaignService.listCampaigns(1000);
+          return { count: campaigns.length };
+        }
+
+        case 'list_campaigns': {
+          const limit = args.limit || 50;
+          const campaigns = await this.campaignService.listCampaigns(limit);
+          return {
+            campaigns: campaigns.map(c => ({
+              id: c.id,
+              name: c.name,
+              description: c.description,
+              videoCount: c.videoCount,
+              totalDuration: c.totalDuration,
+              createdAt: c.createdAt.toISOString(),
+            })),
+          };
+        }
+
+        case 'get_campaign_details': {
+          if (!args.campaignId) {
+            throw new Error('campaignId is required');
+          }
+          const campaign = await this.campaignService.getCampaign(args.campaignId);
+          if (!campaign) {
+            throw new Error(`Campaign ${args.campaignId} not found`);
+          }
+          return {
+            id: campaign.id,
+            name: campaign.name,
+            description: campaign.description,
+            videoCount: campaign.videoCount,
+            totalDuration: campaign.totalDuration,
+            createdAt: campaign.createdAt.toISOString(),
+            updatedAt: campaign.updatedAt.toISOString(),
+          };
+        }
+
+        case 'get_campaign_analytics': {
+          if (!args.campaignId) {
+            throw new Error('campaignId is required');
+          }
+          const analytics = await this.campaignService.getCampaignAnalytics(args.campaignId);
+          return analytics;
+        }
+
+        case 'search_scenes': {
+          if (!args.query) {
+            throw new Error('query is required');
+          }
+          const searchResults = await this.searchService.queryScenes(args.query, {
+            campaignId: args.campaignId,
+            limit: args.limit || 10,
+          });
+          return {
+            scenes: searchResults.map(r => ({
+              sceneId: r.scene.id,
+              videoId: r.scene.videoId,
+              campaignId: r.scene.campaignId,
+              startTime: r.scene.startTime,
+              endTime: r.scene.endTime,
+              description: r.scene.description,
+              transcript: r.scene.transcript,
+              visualElements: r.scene.analysis.visualElements,
+              mood: r.scene.analysis.mood,
+              product: r.scene.analysis.product,
+              score: r.score,
+            })),
+          };
+        }
+
+        case 'count_videos': {
+          if (!this.firestore) {
+            throw new Error('Firestore not available');
+          }
+          let query = this.firestore.collection('videos');
+          if (args.campaignId) {
+            query = query.where('campaignId', '==', args.campaignId) as any;
+          }
+          const snapshot = await query.count().get();
+          return { count: snapshot.data().count };
+        }
+
+        case 'count_scenes': {
+          if (!this.firestore) {
+            throw new Error('Firestore not available');
+          }
+          let query = this.firestore.collection('scenes');
+          if (args.campaignId) {
+            query = query.where('campaignId', '==', args.campaignId) as any;
+          }
+          const snapshot = await query.count().get();
+          return { count: snapshot.data().count };
+        }
+
+        default:
+          throw new Error(`Unknown function: ${functionName}`);
+      }
+    } catch (error) {
+      logger.error('Function execution failed', {
+        operation: 'execute_function',
+        functionName,
+        args,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw error;
+    }
   }
 
   /**
@@ -161,7 +395,7 @@ export class ChatService {
   }
 
   /**
-   * Generate AI response using Gemini Pro with RAG
+   * Generate AI response using Gemini Pro with function calling
    */
   async generateResponse(
     message: string,
@@ -170,87 +404,161 @@ export class ChatService {
   ): Promise<string> {
     const startTime = Date.now();
 
-    // If Vertex AI is not available, return a mock response
+    // If Vertex AI is not available, throw error
     if (!this.generativeModel || !this.vertexai) {
-      logger.warn('Vertex AI not available, returning mock response');
-      return `I received your message: "${message}". However, AI generation is currently unavailable. Please enable Vertex AI to get intelligent responses.`;
+      throw new Error('Vertex AI not initialized');
     }
 
     try {
-      // Build the prompt with system instructions, context, and history
-      const systemInstruction = `You are an AI assistant helping marketers analyze their advertising videos. You have access to detailed scene-level analysis including visual elements, transcripts, and metadata.
+      // System instruction for the AI
+      const systemInstruction = `You are an AI assistant helping marketers analyze their advertising videos.
+
+You have access to these functions to gather information:
+- count_campaigns: Get total number of campaigns
+- list_campaigns: Get list of all campaigns with details
+- get_campaign_details: Get details about a specific campaign
+- get_campaign_analytics: Get analytics for a campaign (moods, products, visual elements)
+- search_scenes: Search for video scenes by content or visual elements
+- count_videos: Count videos in the system or campaign
+- count_scenes: Count scenes in the system or campaign
 
 When answering questions:
+- Use function calls to retrieve accurate, real-time data
 - Be conversational and helpful
-- Reference specific scenes with timestamps when relevant
-- Provide actionable insights
-- If you don't have information, say so clearly
-- Format lists and data clearly`;
-
-      // Format context from retrieved scenes
-      const contextText = context
-        .map(
-          (scene, idx) =>
-            `[Scene ${idx + 1}] Video: ${scene.videoId} (${scene.startTime}s-${scene.endTime}s)
-Description: ${scene.description}
-Visual Elements: ${scene.analysis.visualElements.join(', ')}
-Mood: ${scene.analysis.mood}
-Transcript: "${scene.transcript}"`
-        )
-        .join('\n\n');
+- Reference specific data points from function results
+- If you need information, call the appropriate function first
+- Format lists and data clearly
+- Provide actionable insights`;
 
       // Format conversation history (last 5 messages)
-      const historyText = conversationHistory
+      const historyParts = conversationHistory
         .slice(-5)
-        .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
-        .join('\n');
+        .map(msg => ({
+          role: msg.role,
+          parts: [{ text: msg.content }],
+        }));
 
-      // Build full prompt
-      const prompt = `${systemInstruction}
-
-Context (Retrieved Scenes):
-${contextText || 'No relevant scenes found.'}
-
-${historyText ? `Conversation History:\n${historyText}\n` : ''}
-Current User Message: ${message}
-
-Instructions: Based on the retrieved scenes and context, provide a helpful, conversational answer. Reference specific scenes by their video ID and timestamp when relevant.`;
-
-      const request = {
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 2048,
-        },
+      // Build the request with function declarations
+      const tools = {
+        functionDeclarations: this.getFunctionDeclarations(),
       };
 
-      const response = await this.generativeModel.generateContent(request);
-      const responseText = response.response.candidates[0].content.parts[0].text;
+      let contents = [
+        ...historyParts,
+        {
+          role: 'user',
+          parts: [{ text: message }],
+        },
+      ];
+
+      // Function calling loop - max 5 iterations to prevent infinite loops
+      const maxIterations = 5;
+      let iteration = 0;
+      let finalResponse = '';
+
+      while (iteration < maxIterations) {
+        iteration++;
+
+        logger.debug('Sending request to Gemini', {
+          operation: 'generate_response',
+          iteration,
+          messageCount: contents.length,
+        });
+
+        const request = {
+          contents,
+          tools: [tools],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 2048,
+          },
+        };
+
+        const response = await this.generativeModel.generateContent(request);
+        const candidate = response.response.candidates[0];
+
+        if (!candidate) {
+          throw new Error('No response candidate from Gemini');
+        }
+
+        // Check if the model wants to call a function
+        const functionCall = candidate.content.parts.find((part: any) => part.functionCall);
+
+        if (functionCall) {
+          // Model wants to call a function
+          const funcName = functionCall.functionCall.name;
+          const funcArgs = functionCall.functionCall.args || {};
+
+          logger.info('Gemini requested function call', {
+            operation: 'function_call_request',
+            function: funcName,
+            args: funcArgs,
+          });
+
+          // Execute the function
+          const functionResult = await this.executeFunction(funcName, funcArgs);
+
+          logger.info('Function executed successfully', {
+            operation: 'function_call_result',
+            function: funcName,
+            result: functionResult,
+          });
+
+          // Add the function call and response to the conversation
+          contents.push({
+            role: 'model',
+            parts: [{ functionCall: functionCall.functionCall } as any],
+          } as any);
+
+          contents.push({
+            role: 'function',
+            parts: [
+              {
+                functionResponse: {
+                  name: funcName,
+                  response: functionResult,
+                },
+              } as any,
+            ],
+          } as any);
+
+          // Continue the loop to get the next response
+          continue;
+        }
+
+        // No function call - we have the final text response
+        const textPart = candidate.content.parts.find((part: any) => part.text);
+        if (textPart) {
+          finalResponse = textPart.text;
+          break;
+        }
+
+        // No function call and no text - something went wrong
+        throw new Error('No function call or text in response');
+      }
+
+      if (iteration >= maxIterations && !finalResponse) {
+        throw new Error('Maximum function call iterations reached');
+      }
 
       const duration = Date.now() - startTime;
-      logger.info('Response generated', {
+      logger.info('Response generated with function calling', {
         operation: 'generate_response',
-        contextScenes: context.length,
-        historyLength: conversationHistory.length,
+        iterations: iteration,
         duration,
       });
 
-      return responseText;
+      return finalResponse;
     } catch (error) {
       logger.error('Failed to generate response', {
         operation: 'generate_response',
         message,
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
       });
-      // Return a fallback response instead of throwing
-      return `I received your message but encountered an error generating a response. Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      throw error;
     }
   }
 

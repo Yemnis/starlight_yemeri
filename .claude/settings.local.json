@@ -5,7 +5,8 @@
       "Bash(cat:*)",
       "Bash(echo:*)",
       "Bash(src/app.ts)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

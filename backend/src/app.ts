@@ -35,14 +35,14 @@ const transcriptionService = new TranscriptionService(storageService);
 const sceneService = new SceneService(storageService);
 const embeddingService = new EmbeddingService();
 const searchService = new SearchService(embeddingService, storageService);
-const chatService = new ChatService(searchService);
+const campaignService = new CampaignService();
+const chatService = new ChatService(searchService, campaignService);
 const videoService = new VideoService(
   storageService,
   transcriptionService,
   sceneService,
   embeddingService
 );
-const campaignService = new CampaignService();
 
 // Initialize controllers
 const videoController = new VideoController(videoService, campaignService);
