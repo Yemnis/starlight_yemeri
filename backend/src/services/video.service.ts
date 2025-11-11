@@ -189,7 +189,7 @@ export class VideoService {
         // Analyze scene with Gemini
         const analysis = await this.sceneService.analyzeScene(thumbnailUrl, sceneTranscript);
 
-        // Create scene record
+        // Create scene record with analysis
         const sceneRecord: Scene = {
           id: `${videoId}_scene_${scene.sceneNumber}`,
           videoId,

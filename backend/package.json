@@ -2,10 +2,9 @@
   "name": "starlight-backend",
   "version": "1.0.0",
   "description": "Backend for Starlight Campaign Manager with GCP service account authentication",
-  "main": "dist/server.js",
-  "type": "module",
+  "main": "dist/app.js",
   "scripts": {
-    "start": "node dist/server.js",
+    "start": "node dist/app.js",
     "dev": "nodemon --exec tsx src/app.ts",
     "build": "tsc",
     "verify": "node scripts/verify-setup.js",
@@ -38,6 +37,7 @@
     "winston": "^3.17.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/express-fileupload": "^1.5.1",
     "@types/fluent-ffmpeg": "^2.1.27",

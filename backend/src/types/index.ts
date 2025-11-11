@@ -54,6 +54,7 @@ export interface Transcription {
 }
 
 export interface SceneAnalysis {
+  description: string;
   visualElements: string[];
   actions: string[];
   mood: string;

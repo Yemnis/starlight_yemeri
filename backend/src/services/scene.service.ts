@@ -250,6 +250,7 @@ Be specific and detailed. Focus on advertising-relevant elements.`;
 
       // Return fallback analysis
       return {
+        description: 'Scene analysis unavailable',
         visualElements: [],
         actions: [],
         mood: 'unknown',

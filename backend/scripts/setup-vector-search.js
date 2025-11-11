@@ -3,11 +3,17 @@
  * Helps verify that all required services are enabled and configured
  */
 
-const https = require('https');
-const { config } = require('dotenv');
+import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Load environment variables
-config();
+dotenv.config();
 
 const PROJECT_ID = process.env.GCP_PROJECT_ID;
 const APIS_TO_CHECK = [
@@ -40,11 +46,9 @@ requiredEnvVars.forEach(varName => {
 
 // Check 2: Service Account File
 console.log('\n📄 Checking Service Account File...');
-const fs = require('fs');
-const path = require('path');
 
 if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  const keyPath = path.resolve(process.cwd(), process.env.GOOGLE_APPLICATION_CREDENTIALS);
+  const keyPath = path.resolve(path.join(__dirname, '..'), process.env.GOOGLE_APPLICATION_CREDENTIALS);
   if (fs.existsSync(keyPath)) {
     console.log(`  ✅ Service account key found: ${keyPath}`);
     try {
