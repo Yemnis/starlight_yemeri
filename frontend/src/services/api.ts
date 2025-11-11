@@ -38,6 +38,7 @@ export type Video = {
   uploadedAt: Date;
   processedAt?: Date;
   progress: {
+    metadata: boolean;
     transcription: boolean;
     sceneDetection: boolean;
     sceneAnalysis: boolean;

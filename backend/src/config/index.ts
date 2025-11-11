@@ -41,6 +41,8 @@ interface Config {
     sceneDetectionThreshold: number;
   };
   ffmpeg: {
+    path?: string;
+    ffprobePath?: string;
     audioBitrate: string;
     sampleRate: number;
     thumbnailSize: string;
@@ -94,6 +96,8 @@ const getConfig = (): Config => {
       sceneDetectionThreshold: parseFloat(process.env.SCENE_DETECTION_THRESHOLD || '0.4'),
     },
     ffmpeg: {
+      path: process.env.FFMPEG_PATH,
+      ffprobePath: process.env.FFPROBE_PATH,
       audioBitrate: process.env.FFMPEG_AUDIO_BITRATE || '128k',
       sampleRate: parseInt(process.env.FFMPEG_SAMPLE_RATE || '16000', 10),
       thumbnailSize: process.env.FFMPEG_THUMBNAIL_SIZE || '1024x1024',
@@ -102,3 +106,14 @@ const getConfig = (): Config => {
 };
 
 export const config = getConfig();
+
+// Set ffmpeg paths if provided
+if (config.ffmpeg.path || config.ffmpeg.ffprobePath) {
+  const ffmpeg = require('fluent-ffmpeg');
+  if (config.ffmpeg.path) {
+    ffmpeg.setFfmpegPath(config.ffmpeg.path);
+  }
+  if (config.ffmpeg.ffprobePath) {
+    ffmpeg.setFfprobePath(config.ffmpeg.ffprobePath);
+  }
+}

@@ -56,6 +56,7 @@ export class VideoService {
       status: 'processing',
       uploadedAt: new Date(),
       progress: {
+        metadata: false,
         transcription: false,
         sceneDetection: false,
         sceneAnalysis: false,
@@ -134,35 +135,97 @@ export class VideoService {
       });
 
       // 1. Extract video metadata
-      logger.info('Step 1: Extracting video metadata');
-      const metadata = await this.sceneService.getVideoMetadata(videoPath);
-      await this.firestore.collection('videos').doc(videoId).update({
-        duration: metadata.duration,
-        'metadata.resolution': metadata.resolution,
-        'metadata.fps': metadata.fps,
-        'metadata.codec': metadata.codec,
+      logger.info('Step 1/6: Extracting video metadata', {
+        operation: 'process_video_step',
+        step: 'metadata',
+        videoId,
       });
+      
+      try {
+        const metadata = await this.sceneService.getVideoMetadata(videoPath);
+        await this.firestore.collection('videos').doc(videoId).update({
+          duration: metadata.duration,
+          'metadata.resolution': metadata.resolution,
+          'metadata.fps': metadata.fps,
+          'metadata.codec': metadata.codec,
+        });
+        await this.updateProgress(videoId, { metadata: true });
+        
+        logger.info('Step 1/6 completed: Video metadata extracted', {
+          operation: 'process_video_step',
+          step: 'metadata',
+          videoId,
+          metadata,
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logger.error('Step 1/6 failed: Video metadata extraction', {
+          operation: 'process_video_step',
+          step: 'metadata',
+          videoId,
+          error: errorMessage,
+        });
+        
+        // Check if it's an ffmpeg/ffprobe issue
+        if (errorMessage.includes('ffprobe') || errorMessage.includes('ffmpeg')) {
+          throw new Error(
+            'FFmpeg/FFprobe not found. Please install FFmpeg:\n' +
+            'Windows: Download from https://www.gyan.dev/ffmpeg/builds/ and add to PATH\n' +
+            'Or set FFMPEG_PATH and FFPROBE_PATH in your .env file'
+          );
+        }
+        throw error;
+      }
 
       // 2. Extract audio and transcribe
-      logger.info('Step 2: Extracting audio and transcribing');
+      logger.info('Step 2/6: Extracting audio and transcribing', {
+        operation: 'process_video_step',
+        step: 'transcription',
+        videoId,
+      });
+      
       const { audioUrl, transcription } = await this.transcriptionService.processVideo(videoPath, videoId);
       await this.firestore.collection('videos').doc(videoId).update({
         audioUrl,
         transcription,
       });
       await this.updateProgress(videoId, { transcription: true });
+      
+      logger.info('Step 2/6 completed: Audio extracted and transcribed', {
+        operation: 'process_video_step',
+        step: 'transcription',
+        videoId,
+      });
 
       // 3. Detect and extract scenes
-      logger.info('Step 3: Detecting and extracting scenes');
+      logger.info('Step 3/6: Detecting and extracting scenes', {
+        operation: 'process_video_step',
+        step: 'sceneDetection',
+        videoId,
+      });
+      
       const { scenes, clips, thumbnails } = await this.sceneService.processScenes(
         videoPath,
         videoId,
         transcription
       );
       await this.updateProgress(videoId, { sceneDetection: true });
+      
+      logger.info('Step 3/6 completed: Scenes detected and extracted', {
+        operation: 'process_video_step',
+        step: 'sceneDetection',
+        videoId,
+        sceneCount: scenes.length,
+      });
 
       // 4. Upload scenes and analyze
-      logger.info('Step 4: Uploading scenes and analyzing with Gemini');
+      logger.info('Step 4/6: Uploading scenes and analyzing with Gemini', {
+        operation: 'process_video_step',
+        step: 'sceneAnalysis',
+        videoId,
+        sceneCount: scenes.length,
+      });
+      
       const sceneRecords: Scene[] = [];
 
       for (let i = 0; i < scenes.length; i++) {
@@ -210,16 +273,28 @@ export class VideoService {
         await this.firestore.collection('scenes').doc(sceneRecord.id).set(sceneRecord);
         sceneRecords.push(sceneRecord);
 
-        logger.info(`Scene ${i + 1}/${scenes.length} processed`, {
+        logger.debug(`Scene ${i + 1}/${scenes.length} analyzed`, {
           operation: 'process_scene',
           sceneId: sceneRecord.id,
         });
       }
 
       await this.updateProgress(videoId, { sceneAnalysis: true });
+      
+      logger.info('Step 4/6 completed: All scenes analyzed', {
+        operation: 'process_video_step',
+        step: 'sceneAnalysis',
+        videoId,
+        sceneCount: sceneRecords.length,
+      });
 
       // 5. Generate and store embeddings
-      logger.info('Step 5: Generating embeddings');
+      logger.info('Step 5/6: Generating embeddings', {
+        operation: 'process_video_step',
+        step: 'embeddings',
+        videoId,
+      });
+      
       const embeddingResults = await this.embeddingService.batchProcessScenes(sceneRecords);
 
       // Update scenes with embedding IDs
@@ -230,15 +305,27 @@ export class VideoService {
       }
 
       await this.updateProgress(videoId, { embeddings: true });
+      
+      logger.info('Step 5/6 completed: Embeddings generated', {
+        operation: 'process_video_step',
+        step: 'embeddings',
+        videoId,
+        embeddingCount: embeddingResults.size,
+      });
 
       // 6. Clean up temporary files
-      logger.info('Step 6: Cleaning up temporary files');
+      logger.info('Step 6/6: Cleaning up temporary files', {
+        operation: 'process_video_step',
+        step: 'cleanup',
+        videoId,
+      });
+      
       await this.cleanupTempFiles(videoPath, videoId);
 
-      // 7. Mark as completed
+      // Mark as completed
       await this.updateStatus(videoId, 'completed');
 
-      // 8. Update campaign video count
+      // Update campaign video count
       await this.updateCampaignStats(campaignId);
 
       const duration = Date.now() - startTime;
@@ -249,14 +336,22 @@ export class VideoService {
         duration,
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
       logger.error('Video processing pipeline failed', {
         operation: 'process_video',
         videoId,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
       });
 
-      await this.updateStatus(videoId, 'failed');
+      // Store error message with the video
+      await this.firestore.collection('videos').doc(videoId).update({
+        status: 'failed',
+        errorMessage,
+        updatedAt: new Date(),
+      });
+
       throw error;
     }
   }

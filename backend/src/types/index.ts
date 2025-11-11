@@ -5,6 +5,7 @@
 export type VideoStatus = 'processing' | 'completed' | 'failed';
 
 export interface VideoProgress {
+  metadata: boolean;
   transcription: boolean;
   sceneDetection: boolean;
   sceneAnalysis: boolean;

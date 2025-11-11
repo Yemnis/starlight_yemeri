@@ -144,6 +144,7 @@ export const VideoUpload = ({ campaignId, onUploadComplete }: VideoUploadProps) 
     
     const { progress } = processingStatus;
     return [
+      { name: 'Video Metadata', completed: progress.metadata },
       { name: 'Transcription', completed: progress.transcription },
       { name: 'Scene Detection', completed: progress.sceneDetection },
       { name: 'Scene Analysis', completed: progress.sceneAnalysis },
