@@ -31,64 +31,34 @@ export class SearchService {
     const startTime = Date.now();
 
     try {
-      // Generate query embedding
-      const queryEmbedding = await this.embeddingService.generateEmbedding(query);
-
-      // TODO: Perform actual vector similarity search with Vertex AI Matching Engine
-      // This would use the MatchingEngineIndexEndpoint to find nearest neighbors
-      // For now, we'll implement a fallback using Firestore text search
-
-      // Get scenes from Firestore with optional filters
-      let scenesQuery = this.firestore.collection('scenes').limit(options.limit || 10);
-
-      if (options.campaignId) {
-        scenesQuery = scenesQuery.where('campaignId', '==', options.campaignId) as any;
-      }
-
-      if (options.filters?.mood) {
-        scenesQuery = scenesQuery.where('analysis.mood', '==', options.filters.mood) as any;
-      }
-
-      if (options.filters?.product) {
-        scenesQuery = scenesQuery.where('analysis.product', '==', options.filters.product) as any;
-      }
-
-      const snapshot = await scenesQuery.get();
-      const scenes: Scene[] = [];
-
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        scenes.push({
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt?.toDate() || new Date(),
-        } as Scene);
+      // Analyze query to determine search strategy
+      const searchStrategy = this.analyzeQuery(query);
+      
+      logger.info('Query analyzed', {
+        operation: 'query_scenes',
+        query,
+        strategy: searchStrategy.type,
+        useVectorSearch: searchStrategy.useVectorSearch,
       });
 
-      // Filter by confidence if specified
-      let filteredScenes = scenes;
-      if (options.filters?.minConfidence) {
-        filteredScenes = scenes.filter(
-          scene => scene.analysis.confidence >= options.filters!.minConfidence!
-        );
-      }
+      let scenes: Scene[] = [];
 
-      // Filter by visual elements if specified
-      if (options.filters?.visualElements && options.filters.visualElements.length > 0) {
-        filteredScenes = filteredScenes.filter(scene =>
-          options.filters!.visualElements!.some(element =>
-            scene.analysis.visualElements.includes(element)
-          )
-        );
+      if (searchStrategy.useVectorSearch) {
+        // Use vector similarity search for semantic queries
+        scenes = await this.performVectorSearch(query, options);
+      } else {
+        // Use traditional Firestore query for simple/filtered queries
+        scenes = await this.performTraditionalSearch(query, options);
       }
 
       // Enrich results with video metadata and signed URLs
-      const results = await this.enrichResults(filteredScenes, query);
+      const results = await this.enrichResults(scenes, query);
 
       const duration = Date.now() - startTime;
       logger.info('Scene query completed', {
         operation: 'query_scenes',
         query,
+        strategy: searchStrategy.type,
         resultCount: results.length,
         duration,
       });
@@ -102,6 +72,140 @@ export class SearchService {
       });
       throw new Error(`Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Analyze query to determine optimal search strategy
+   */
+  private analyzeQuery(query: string): { type: string; useVectorSearch: boolean } {
+    const queryLower = query.toLowerCase();
+    
+    // Keywords that indicate semantic/conceptual search
+    const semanticKeywords = [
+      'like', 'similar', 'showing', 'with', 'about', 'featuring',
+      'scene', 'video', 'moment', 'part', 'feel', 'mood', 'vibe',
+      'happy', 'sad', 'energetic', 'calm', 'exciting', 'emotional'
+    ];
+
+    // Keywords that indicate specific filter search
+    const filterKeywords = ['exact', 'id:', 'campaign:', 'product:'];
+
+    // Check for filter keywords (prefer traditional search)
+    const hasFilterKeywords = filterKeywords.some(kw => queryLower.includes(kw));
+    if (hasFilterKeywords) {
+      return { type: 'filtered', useVectorSearch: false };
+    }
+
+    // Check for semantic keywords or longer descriptive queries
+    const hasSemanticKeywords = semanticKeywords.some(kw => queryLower.includes(kw));
+    const isDescriptive = query.split(/\s+/).length > 3; // More than 3 words
+    
+    if (hasSemanticKeywords || isDescriptive) {
+      return { type: 'semantic', useVectorSearch: true };
+    }
+
+    // Short queries without specific intent - use vector search for better results
+    return { type: 'general', useVectorSearch: true };
+  }
+
+  /**
+   * Perform vector similarity search
+   */
+  private async performVectorSearch(query: string, options: SearchOptions): Promise<Scene[]> {
+    // Generate query embedding
+    const queryEmbedding = await this.embeddingService.generateEmbedding(query);
+
+    // Search for similar embeddings
+    const similarEmbeddings = await this.embeddingService.searchSimilarEmbeddings(
+      queryEmbedding,
+      options.limit || 20,
+      options.campaignId,
+      0.3 // minimum similarity threshold
+    );
+
+    // Fetch scene documents
+    const scenes: Scene[] = [];
+    for (const result of similarEmbeddings) {
+      try {
+        const sceneDoc = await this.firestore.collection('scenes').doc(result.sceneId).get();
+        if (sceneDoc.exists) {
+          const sceneData = sceneDoc.data();
+          const scene = {
+            id: sceneDoc.id,
+            ...sceneData,
+            createdAt: sceneData?.createdAt?.toDate() || new Date(),
+            vectorSimilarity: result.similarity, // Add similarity score for ranking
+          } as Scene & { vectorSimilarity?: number };
+          scenes.push(scene);
+        }
+      } catch (err) {
+        logger.warn('Failed to fetch scene from vector search result', {
+          sceneId: result.sceneId,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+    }
+
+    // Apply additional filters
+    return this.applyFilters(scenes, options);
+  }
+
+  /**
+   * Perform traditional Firestore search with filters
+   */
+  private async performTraditionalSearch(query: string, options: SearchOptions): Promise<Scene[]> {
+    let scenesQuery = this.firestore.collection('scenes').limit(options.limit || 10);
+
+    if (options.campaignId) {
+      scenesQuery = scenesQuery.where('campaignId', '==', options.campaignId) as any;
+    }
+
+    if (options.filters?.mood) {
+      scenesQuery = scenesQuery.where('analysis.mood', '==', options.filters.mood) as any;
+    }
+
+    if (options.filters?.product) {
+      scenesQuery = scenesQuery.where('analysis.product', '==', options.filters.product) as any;
+    }
+
+    const snapshot = await scenesQuery.get();
+    const scenes: Scene[] = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      scenes.push({
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate() || new Date(),
+      } as Scene);
+    });
+
+    return this.applyFilters(scenes, options);
+  }
+
+  /**
+   * Apply filters to scene results
+   */
+  private applyFilters(scenes: Scene[], options: SearchOptions): Scene[] {
+    let filtered = scenes;
+
+    // Filter by confidence if specified
+    if (options.filters?.minConfidence) {
+      filtered = filtered.filter(
+        scene => scene.analysis.confidence >= options.filters!.minConfidence!
+      );
+    }
+
+    // Filter by visual elements if specified
+    if (options.filters?.visualElements && options.filters.visualElements.length > 0) {
+      filtered = filtered.filter(scene =>
+        options.filters!.visualElements!.some(element =>
+          scene.analysis.visualElements.includes(element)
+        )
+      );
+    }
+
+    return filtered;
   }
 
   /**
@@ -276,27 +380,33 @@ export class SearchService {
 
   /**
    * Calculate relevance score for a scene based on query
-   * Placeholder implementation - would use vector similarity in production
+   * Uses vector similarity when available, otherwise falls back to keyword matching
    */
-  private calculateRelevanceScore(scene: Scene, query: string): number {
+  private calculateRelevanceScore(scene: Scene & { vectorSimilarity?: number }, query: string): number {
+    // If we have vector similarity score, use it as primary score
+    if (scene.vectorSimilarity !== undefined) {
+      return scene.vectorSimilarity;
+    }
+
+    // Fall back to keyword-based scoring
     const queryLower = query.toLowerCase();
-    let score = scene.analysis.confidence;
+    let score = scene.analysis.confidence * 0.5; // Base confidence score
 
     // Boost score if query terms appear in description
     if (scene.description.toLowerCase().includes(queryLower)) {
-      score += 0.1;
+      score += 0.2;
     }
 
     // Boost if in transcript
     if (scene.transcript.toLowerCase().includes(queryLower)) {
-      score += 0.05;
+      score += 0.15;
     }
 
     // Boost if in visual elements
     const queryWords = queryLower.split(/\s+/);
     for (const word of queryWords) {
       if (scene.analysis.visualElements.some(el => el.toLowerCase().includes(word))) {
-        score += 0.05;
+        score += 0.1;
       }
     }
 

@@ -69,7 +69,7 @@ const getConfig = (): Config => {
     gcp: {
       projectId: process.env.GCP_PROJECT_ID!,
       location: process.env.GCP_LOCATION || 'us-central1',
-      serviceAccountKey: process.env.GCP_SERVICE_ACCOUNT_KEY || './key.json',
+      serviceAccountKey: process.env.GOOGLE_APPLICATION_CREDENTIALS || './config/service-account-key.json',
     },
     storage: {
       bucket: process.env.GCS_BUCKET!,

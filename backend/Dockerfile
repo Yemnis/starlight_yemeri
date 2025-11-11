@@ -19,7 +19,7 @@ COPY src ./src
 RUN npm run build
 
 # Copy GCP credentials if available
-COPY key.json ./key.json 2>/dev/null || :
+COPY config/service-account-key.json ./config/service-account-key.json 2>/dev/null || :
 
 # Set environment
 ENV NODE_ENV=production

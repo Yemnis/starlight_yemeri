@@ -52,12 +52,36 @@ cd frontend
 npm run build
 ```
 
+## Backend Setup
+
+The backend uses **Google Cloud Platform Service Account authentication** (recommended by Google) instead of API keys for enhanced security.
+
+### Prerequisites
+- FFmpeg installed on your system (required for video processing)
+- GCP account with service account configured
+
+```bash
+cd backend
+npm install
+
+# Create service account in GCP Console
+# Download JSON key to ./config/service-account-key.json
+# Copy env.example to .env and configure
+
+npm run verify  # Verify setup
+npm run dev     # Start server
+```
+
+See [backend/README.md](backend/README.md) for detailed setup instructions.
+
 ## Future Enhancements
 
-- Backend API integration
-- Real AI chat functionality
-- Campaign CRUD operations
-- User authentication
-- Campaign analytics
-- Media upload functionality
+- ✅ Backend API with service account authentication
+- ✅ AI chat functionality via Vertex AI
+- ✅ Campaign CRUD operations
+- Database integration (PostgreSQL/MongoDB)
+- User authentication & authorization
+- Campaign analytics dashboard
+- Media upload and processing
+- Real-time updates via WebSockets
 

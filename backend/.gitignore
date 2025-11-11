@@ -1,29 +1,30 @@
 # Dependencies
 node_modules/
 package-lock.json
-
-# Build outputs
-dist/
-*.tsbuildinfo
+yarn.lock
 
 # Environment variables
 .env
 .env.local
-.env.production
+.env.*.local
 
-# GCP credentials
-key.json
-*.json.key
+# Service Account Keys (CRITICAL - NEVER COMMIT THESE)
+config/service-account-key.json
+config/*.json
+service-account*.json
+*-key.json
+credentials.json
 
 # Logs
 logs/
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Temporary files
-tmp/
-temp/
-*.tmp
+# OS files
+.DS_Store
+Thumbs.db
 
 # IDE
 .vscode/
@@ -32,14 +33,10 @@ temp/
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Test coverage
+# Testing
 coverage/
 .nyc_output/
 
-# Testing
-*.test.js
-*.spec.js
+# Build
+dist/
+build/

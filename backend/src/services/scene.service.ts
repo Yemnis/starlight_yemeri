@@ -229,7 +229,7 @@ Be specific and detailed. Focus on advertising-relevant elements.`;
       const analysis: SceneAnalysis = JSON.parse(resultText);
 
       // Validate required fields
-      if (!analysis.description || !analysis.visualElements) {
+      if (!analysis.visualElements || !analysis.mood || !analysis.composition) {
         throw new Error('Invalid analysis response from Gemini');
       }
 
@@ -250,7 +250,6 @@ Be specific and detailed. Focus on advertising-relevant elements.`;
 
       // Return fallback analysis
       return {
-        description: 'Analysis unavailable',
         visualElements: [],
         actions: [],
         mood: 'unknown',

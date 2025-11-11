@@ -1,439 +1,186 @@
-# Starlight Video Analysis API
+# Starlight Backend
 
-A production-ready video ingestion and retrieval system that processes advertising videos, extracts multimodal metadata, enables semantic search, and provides conversational Q&A capabilities.
+Node.js backend for the Starlight Campaign Manager with Google Cloud Platform integration using **Service Account authentication**.
 
 ## Features
 
-- **Video Processing**: Upload and process videos with automatic scene detection
-- **Audio Transcription**: OpenAI Whisper API integration for word-level transcription
-- **AI Scene Analysis**: Gemini 2.5 Flash for multimodal video/image understanding
-- **Semantic Search**: Vector embeddings with Vertex AI for intelligent scene retrieval
-- **Conversational AI**: RAG-powered chat interface using Gemini Pro
-- **Cloud Storage**: GCS for video artifacts with signed URL access
-- **Metadata Storage**: Firestore for structured data persistence
-
-## Tech Stack
-
-- **Runtime**: Node.js 20 + TypeScript
-- **Framework**: Express.js
-- **AI Services**:
-  - OpenAI Whisper API (transcription)
-  - GCP Vertex AI Gemini 2.5 Flash (scene analysis)
-  - GCP Vertex AI Gemini Pro (conversational AI)
-  - Vertex AI Vector Search (embeddings)
-- **Storage**: GCP Cloud Storage, Firestore
-- **Media Processing**: FFmpeg
-- **Deployment**: Docker, Cloud Run
+- ✅ RESTful API for campaign management
+- ✅ Vertex AI integration for AI-powered chat
+- ✅ Service Account authentication (secure, no API keys)
+- ✅ Health check endpoints
+- ✅ CORS enabled for frontend integration
 
 ## Prerequisites
 
-- Node.js 20 LTS or higher
-- FFmpeg 6.0+
-- GCP Account with billing enabled
-- OpenAI API account
-- Git
+- Node.js 18+ installed
+- **FFmpeg** installed on your system (required for video processing)
+- Google Cloud Platform account with billing enabled
+- GCP project with Vertex AI API enabled
 
-## Installation
-
-### 1. Clone Repository
+### Install FFmpeg
 
 ```bash
-git clone <repository-url>
-cd backend
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt-get install ffmpeg
+
+# Windows (using Chocolatey)
+choco install ffmpeg
 ```
 
-### 2. Install Dependencies
+## Quick Setup
+
+### 1. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Configure Environment
+### 2. Create Service Account (GCP Console)
 
-Copy the example environment file:
+1. Go to [Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+2. Click **"CREATE SERVICE ACCOUNT"**
+3. Name: `starlight-backend`
+4. Grant these roles:
+   - **Vertex AI User** (for AI/ML operations)
+   - **Storage Object Admin** (for Cloud Storage access)
+   - **Cloud Datastore User** (for Firestore access)
+5. Go to **Keys** tab → **Add Key** → **Create new key** → **JSON**
+6. Download the JSON key file
+
+### 3. Create Cloud Storage Bucket
+
+1. Go to [Cloud Storage](https://console.cloud.google.com/storage)
+2. Click **"CREATE BUCKET"**
+3. Name it (e.g., `starlight-videos`)
+4. Choose region: `us-central1` (same as GCP_LOCATION)
+5. Leave default settings and click **"CREATE"**
+
+### 4. Get OpenAI API Key
+
+1. Go to https://platform.openai.com/api-keys
+2. Sign up or log in
+3. Click **"Create new secret key"**
+4. Copy the key (starts with `sk-proj-...`)
+
+### 5. Configure Environment
 
 ```bash
-cp .env.example .env.local
+# Copy template
+cp env.example .env
+
+# Place your service account key
+mv ~/Downloads/your-project-*.json ./config/service-account-key.json
 ```
 
-Edit `.env.local` with your credentials:
+Edit `.env` with your values:
 
 ```env
-# Node Environment
-NODE_ENV=development
-PORT=3000
+# REQUIRED
+OPENAI_API_KEY=sk-proj-your-actual-key
+GCP_PROJECT_ID=your-gcp-project-id
+GCS_BUCKET=your-bucket-name
+GOOGLE_APPLICATION_CREDENTIALS=./config/service-account-key.json
 
-# OpenAI Whisper API
-OPENAI_API_KEY=sk-proj-your-key-here
-
-# GCP Configuration
-GCP_PROJECT_ID=your-project-id
+# BASIC CONFIG
+PORT=3001
 GCP_LOCATION=us-central1
-GCP_SERVICE_ACCOUNT_KEY=./key.json
-
-# Cloud Storage
-GCS_BUCKET=your-project-id-video-assets
-
-# Vertex AI
-VERTEX_AI_LOCATION=us-central1
-GEMINI_NANO_BANANA_MODEL=gemini-2.5-flash
-GEMINI_PRO_MODEL=gemini-1.5-pro
-EMBEDDING_MODEL=text-embedding-004
-
-# Vector Search (create these via GCP Console)
-VECTOR_INDEX_ID=projects/.../indexes/...
-VECTOR_INDEX_ENDPOINT=projects/.../indexEndpoints/...
+FRONTEND_URL=http://localhost:5173
 ```
 
-### 4. GCP Setup
-
-Download your GCP service account key:
+### 6. Enable Required APIs
 
 ```bash
-# Via GCP Console:
-# 1. Go to IAM & Admin > Service Accounts
-# 2. Create or select a service account
-# 3. Create a key (JSON format)
-# 4. Save as key.json in the backend directory
+gcloud services enable aiplatform.googleapis.com
 ```
 
-Run the automated setup script:
+### 7. Verify Setup
 
 ```bash
-npm run setup:gcp
+npm run verify
 ```
 
-This will:
-- Create Cloud Storage bucket
-- Configure CORS and lifecycle policies
-- Verify Firestore connection
-- Test Vertex AI access
-
-### 5. Create Vector Search Index
-
-Follow the [Vertex AI documentation](https://cloud.google.com/vertex-ai/docs/matching-engine/create-manage-index) to create a vector search index:
+### 8. Start Server
 
 ```bash
-# Example using gcloud CLI
-gcloud ai index-endpoints create \
-  --display-name=video-scenes-endpoint \
-  --project=your-project-id \
-  --region=us-central1
-```
-
-Update `VECTOR_INDEX_ID` and `VECTOR_INDEX_ENDPOINT` in your `.env.local` file.
-
-## Development
-
-### Run Development Server
-
-```bash
+# Development mode
 npm run dev
+
+# Production mode
+npm start
 ```
 
-Server will start on `http://localhost:3000`
+Server runs at `http://localhost:3001`
 
-### Build for Production
+## API Endpoints
 
-```bash
-npm run build
+### Health Check
+```http
+GET /api/health
+GET /api/health/auth
 ```
 
-### Run Tests
+### Chat (AI)
+```http
+POST /api/chat/message
+Content-Type: application/json
 
-```bash
-npm test
-```
-
-## API Documentation
-
-### Base URL
-
-```
-http://localhost:3000/api/v1
+{
+  "message": "Your message here",
+  "history": []  // optional
+}
 ```
 
 ### Campaigns
-
-#### Create Campaign
 ```http
-POST /campaigns
-Content-Type: application/json
-
-{
-  "name": "Summer 2025 Campaign",
-  "description": "Beach lifestyle products"
-}
+GET /api/campaigns
+GET /api/campaigns/:id
+POST /api/campaigns
 ```
 
-#### Get Campaign
-```http
-GET /campaigns/:id
-```
+## Service Account Security
 
-#### Get Campaign Analytics
-```http
-GET /campaigns/:id/analytics
-```
-
-### Videos
-
-#### Upload Video
-```http
-POST /videos/upload
-Content-Type: multipart/form-data
-
-{
-  "file": <video file>,
-  "campaignId": "uuid"
-}
-```
-
-#### Get Video Status
-```http
-GET /videos/:id
-```
-
-#### Get Video with Scenes
-```http
-GET /videos/:id/full
-```
-
-### Search
-
-#### Semantic Search
-```http
-POST /search/query
-Content-Type: application/json
-
-{
-  "query": "product reveal with energetic mood",
-  "campaignId": "uuid",
-  "limit": 10,
-  "filters": {
-    "mood": "energetic",
-    "minConfidence": 0.7
-  }
-}
-```
-
-#### Find Similar Scenes
-```http
-POST /search/similar
-Content-Type: application/json
-
-{
-  "sceneId": "video_uuid_scene_3",
-  "limit": 5
-}
-```
-
-#### Search by Visual Elements
-```http
-POST /search/visual
-Content-Type: application/json
-
-{
-  "elements": ["product", "person", "outdoor"],
-  "matchAll": false,
-  "limit": 20
-}
-```
-
-### Chat
-
-#### Create Conversation
-```http
-POST /chat/conversations
-Content-Type: application/json
-
-{
-  "campaignId": "uuid"
-}
-```
-
-#### Send Message
-```http
-POST /chat/conversations/:id/messages
-Content-Type: application/json
-
-{
-  "message": "Show me all scenes with product reveals"
-}
-```
-
-## Video Processing Pipeline
-
-1. **Upload**: Client uploads video file
-2. **Metadata Extraction**: FFmpeg extracts video properties
-3. **Audio Extraction**: FFmpeg extracts audio track
-4. **Transcription**: Whisper API generates word-level transcript
-5. **Scene Detection**: FFmpeg detects scene boundaries
-6. **Scene Extraction**: Individual clips and thumbnails generated
-7. **AI Analysis**: Gemini analyzes each scene with visual + transcript
-8. **Embedding Generation**: Creates vector embeddings for search
-9. **Storage**: Uploads all assets to Cloud Storage
-10. **Completion**: Updates status and campaign statistics
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   Express API Server                         │
-│                                                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Video      │  │   Search     │  │    Chat      │      │
-│  │  Controller  │  │  Controller  │  │  Controller  │      │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
-│         │                  │                  │              │
-│         ▼                  ▼                  ▼              │
-│  ┌─────────────────────────────────────────────────┐        │
-│  │              Service Layer                       │        │
-│  │  VideoService | TranscriptionService             │        │
-│  │  SceneService | EmbeddingService                 │        │
-│  │  SearchService | ChatService                     │        │
-│  │  StorageService                                  │        │
-│  └─────────────────────────────────────────────────┘        │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-         ┌───────────────┼───────────────┬───────────────┐
-         ▼               ▼               ▼               ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐ ┌────────┐
-│   Whisper    │  │Gemini 2.5    │  │  Vertex AI   │ │ Gemini │
-│     API      │  │    Flash     │  │Vector Search │ │  Pro   │
-│  (OpenAI)    │  │  (Analysis)  │  │    (GCP)     │ │ (Chat) │
-└──────────────┘  └──────────────┘  └──────────────┘ └────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                      Data Layer (GCP)                        │
-│  ┌──────────────┐  ┌──────────────┐                         │
-│  │  Firestore   │  │Cloud Storage │                         │
-│  │  (Metadata)  │  │  (Assets)    │                         │
-│  └──────────────┘  └──────────────┘                         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Deployment
-
-### Docker
-
-Build image:
-```bash
-docker build -t video-analysis-api .
-```
-
-Run container:
-```bash
-docker run -p 8080:8080 \
-  -e GCP_PROJECT_ID=your-project \
-  -e OPENAI_API_KEY=your-key \
-  -e GCS_BUCKET=your-bucket \
-  -v /path/to/key.json:/app/key.json \
-  video-analysis-api
-```
-
-### Cloud Run
-
-Deploy to Cloud Run:
-```bash
-gcloud run deploy video-analysis-api \
-  --image gcr.io/PROJECT_ID/video-analysis-api:latest \
-  --platform managed \
-  --region us-central1 \
-  --memory 4Gi \
-  --cpu 2 \
-  --timeout 3600 \
-  --max-instances 5 \
-  --service-account video-analysis-sa@PROJECT_ID.iam.gserviceaccount.com \
-  --allow-unauthenticated
-```
-
-## Monitoring
-
-### Health Check
-
-```bash
-curl http://localhost:3000/health
-```
-
-Response:
-```json
-{
-  "status": "ok",
-  "timestamp": "2025-11-10T12:00:00Z",
-  "services": {
-    "firestore": "configured",
-    "storage": "configured",
-    "vertexai": "configured",
-    "whisper": "configured"
-  },
-  "version": "1.0.0"
-}
-```
-
-### Logs
-
-Logs are written to:
-- Console (all environments)
-- `logs/error.log` (production only)
-- `logs/combined.log` (production only)
-
-## Cost Estimation
-
-### Development/Testing (100 videos/month)
-- Whisper API: ~$0.45
-- Gemini Analysis: ~$2.00
-- Vertex AI: ~$5.10
-- Storage & Compute: ~$2.50
-- **Total: ~$10/month**
-
-### Production (500 videos/month)
-- Whisper API: ~$2.25
-- Gemini Analysis: ~$10.00
-- Vertex AI: ~$16.00
-- Storage & Compute: ~$28.00
-- **Total: ~$57/month**
+⚠️ **IMPORTANT**:
+- Never commit `config/service-account-key.json` to version control (already in `.gitignore`)
+- Never share your service account key
+- Rotate keys every 90 days
+- Only grant minimum required permissions
 
 ## Troubleshooting
 
-### FFmpeg not found
-```bash
-# macOS
-brew install ffmpeg
+| Error | Solution |
+|-------|----------|
+| Missing environment variables | Copy `env.example` to `.env` and fill in values |
+| Service account key not found | Place JSON key at `./config/service-account-key.json` |
+| Permission denied | Grant "Vertex AI User" role to service account in GCP Console |
+| API not enabled | Run: `gcloud services enable aiplatform.googleapis.com` |
 
-# Ubuntu
-sudo apt-get install ffmpeg
+## Project Structure
 
-# Windows
-choco install ffmpeg
+```
+backend/
+├── config/
+│   └── service-account-key.json  # Your GCP credentials (gitignored)
+├── src/
+│   ├── config/
+│   │   └── env.js                # Environment configuration
+│   ├── routes/
+│   │   ├── health.js             # Health check endpoints
+│   │   ├── chat.js               # AI chat endpoints
+│   │   └── campaigns.js          # Campaign CRUD endpoints
+│   ├── services/
+│   │   ├── auth.js               # GCP authentication
+│   │   └── vertexAI.js           # Vertex AI integration
+│   └── server.js                 # Main Express server
+├── .env                          # Environment config (gitignored)
+├── env.example                   # Environment template
+└── package.json
 ```
 
-### GCP Authentication Error
-```bash
-# Set environment variable
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+## Resources
 
-# Or use gcloud auth
-gcloud auth application-default login
-```
-
-### Video Processing Stuck
-- Check FFmpeg is installed and accessible
-- Verify video file is in supported format (MP4, MOV, AVI)
-- Check file size is under limit (500MB default)
-- Review logs for detailed error messages
-
-## Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Add tests
-4. Submit a pull request
-
-## License
-
-MIT
-
-## Support
-
-For issues and questions, please open an issue on GitHub or contact the team.
+- [Service Accounts](https://cloud.google.com/iam/docs/service-accounts)
+- [Vertex AI Documentation](https://cloud.google.com/vertex-ai/docs)
+- [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials)
