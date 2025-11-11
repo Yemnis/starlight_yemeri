@@ -102,7 +102,34 @@ gcloud services enable aiplatform.googleapis.com
 npm run verify
 ```
 
-### 8. Start Server
+### 8. Deploy Firestore Indexes
+
+Firestore requires composite indexes for complex queries. Deploy them using:
+
+**Option 1: One-Click Link (Fastest)**
+When you get an index error, the error message includes a direct link. Click it to create the index automatically.
+
+**Option 2: Deploy via Firebase CLI**
+```bash
+# Install Firebase CLI globally
+npm install -g firebase-tools
+
+# Login to Firebase
+firebase login
+
+# Deploy indexes (Windows)
+cd backend
+scripts\deploy-indexes.bat
+
+# Deploy indexes (Mac/Linux)
+cd backend
+chmod +x scripts/deploy-indexes.sh
+./scripts/deploy-indexes.sh
+```
+
+Wait 2-5 minutes for indexes to build. Check status at [Firebase Console](https://console.firebase.google.com/project/gen-lang-client-0082081331/firestore/indexes).
+
+### 9. Start Server
 
 ```bash
 # Development mode
@@ -156,6 +183,8 @@ POST /api/campaigns
 | Service account key not found | Place JSON key at `./config/service-account-key.json` |
 | Permission denied | Grant "Vertex AI User" role to service account in GCP Console |
 | API not enabled | Run: `gcloud services enable aiplatform.googleapis.com` |
+| **Firestore index error** | Click the link in the error message OR run `scripts/deploy-indexes.bat` |
+| FFmpeg not found | Install FFmpeg using the instructions above |
 
 ## Project Structure
 

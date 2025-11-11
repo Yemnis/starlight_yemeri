@@ -124,12 +124,18 @@ class ApiService {
 
   // Campaign methods
   async createCampaign(name: string, description?: string): Promise<Campaign> {
+    // Only include description in the body if it's provided and not empty
+    const body: { name: string; description?: string } = { name };
+    if (description && description.trim()) {
+      body.description = description.trim();
+    }
+
     const response = await fetch(`${API_BASE_URL}/campaigns`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -174,12 +180,18 @@ class ApiService {
   }
 
   async updateCampaign(campaignId: string, name: string, description?: string): Promise<Campaign> {
+    // Only include description in the body if it's provided and not empty
+    const body: { name: string; description?: string } = { name };
+    if (description && description.trim()) {
+      body.description = description.trim();
+    }
+
     const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {

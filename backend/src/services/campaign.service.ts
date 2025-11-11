@@ -20,15 +20,33 @@ export class CampaignService {
   }
 
   /**
+   * Clean Firestore data by removing undefined values
+   * Firestore doesn't accept undefined values
+   */
+  private cleanFirestoreData(obj: any): any {
+    const cleaned: any = {};
+    for (const key in obj) {
+      if (obj[key] !== undefined && obj[key] !== null) {
+        // For nested objects, clean recursively
+        if (typeof obj[key] === 'object' && !(obj[key] instanceof Date)) {
+          cleaned[key] = this.cleanFirestoreData(obj[key]);
+        } else {
+          cleaned[key] = obj[key];
+        }
+      }
+    }
+    return cleaned;
+  }
+
+  /**
    * Create a new campaign
    */
   async createCampaign(name: string, description?: string): Promise<Campaign> {
     const campaignId = uuidv4();
 
-    const campaign: Campaign = {
+    const campaign: any = {
       id: campaignId,
       name,
-      description,
       createdAt: new Date(),
       updatedAt: new Date(),
       videoCount: 0,
@@ -37,7 +55,15 @@ export class CampaignService {
       indexEndpoint: config.vectorSearch.indexEndpoint,
     };
 
-    await this.firestore.collection('campaigns').doc(campaignId).set(campaign);
+    // Only include description if it's provided and not empty (Firestore doesn't accept undefined)
+    if (description && typeof description === 'string' && description.trim()) {
+      campaign.description = description.trim();
+    }
+
+    // Clean the object to remove any undefined values before saving to Firestore
+    const cleanCampaign = this.cleanFirestoreData(campaign);
+
+    await this.firestore.collection('campaigns').doc(campaignId).set(cleanCampaign);
 
     logger.info('Campaign created', {
       operation: 'create_campaign',
@@ -45,7 +71,7 @@ export class CampaignService {
       name,
     });
 
-    return campaign;
+    return cleanCampaign as Campaign;
   }
 
   /**
@@ -88,18 +114,29 @@ export class CampaignService {
         return null;
       }
 
+      // Build update object with only defined values
+      const cleanUpdates: any = { updatedAt: new Date() };
+      
+      if (updates.name && typeof updates.name === 'string') {
+        cleanUpdates.name = updates.name.trim();
+      }
+      
+      if (updates.description && typeof updates.description === 'string' && updates.description.trim()) {
+        cleanUpdates.description = updates.description.trim();
+      }
+
+      // Clean the object to remove any undefined values
+      const finalUpdates = this.cleanFirestoreData(cleanUpdates);
+
       await this.firestore
         .collection('campaigns')
         .doc(campaignId)
-        .update({
-          ...updates,
-          updatedAt: new Date(),
-        });
+        .update(finalUpdates);
 
       logger.info('Campaign updated', {
         operation: 'update_campaign',
         campaignId,
-        updates,
+        updates: finalUpdates,
       });
 
       return this.getCampaign(campaignId);
