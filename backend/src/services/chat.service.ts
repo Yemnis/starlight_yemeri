@@ -11,23 +11,35 @@ import { ChatConversation, ChatMessage, Scene } from '../types';
 import { SearchService } from './search.service';
 
 export class ChatService {
-  private firestore: Firestore;
-  private vertexai: VertexAI;
+  private firestore: Firestore | null = null;
+  private vertexai: VertexAI | null = null;
   private generativeModel: any;
   private searchService: SearchService;
+  private useInMemoryStore: boolean = false;
+  private inMemoryConversations: Map<string, ChatConversation> = new Map();
 
   constructor(searchService: SearchService) {
-    this.firestore = new Firestore({
-      projectId: config.gcp.projectId,
-      databaseId: config.firestore.database,
-    });
-    this.vertexai = new VertexAI({
-      project: config.gcp.projectId,
-      location: config.vertexai.location,
-    });
-    this.generativeModel = this.vertexai.getGenerativeModel({
-      model: config.vertexai.geminiProModel,
-    });
+    try {
+      this.firestore = new Firestore({
+        projectId: config.gcp.projectId,
+        databaseId: config.firestore.database,
+      });
+      this.vertexai = new VertexAI({
+        project: config.gcp.projectId,
+        location: config.vertexai.location,
+      });
+      this.generativeModel = this.vertexai.getGenerativeModel({
+        model: config.vertexai.geminiProModel,
+      });
+      logger.info('ChatService initialized with Firestore and Vertex AI');
+    } catch (error) {
+      logger.warn('Failed to initialize GCP services, using in-memory fallback', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      this.useInMemoryStore = true;
+      this.firestore = null;
+      this.vertexai = null;
+    }
     this.searchService = searchService;
     logger.info('ChatService initialized');
   }
@@ -44,18 +56,42 @@ export class ChatService {
       updatedAt: new Date(),
     };
 
-    await this.firestore.collection('chats').doc(conversation.id).set({
-      campaignId,
-      messages: [],
-      createdAt: conversation.createdAt,
-      updatedAt: conversation.updatedAt,
-    });
+    if (this.useInMemoryStore || !this.firestore) {
+      // Store in memory
+      this.inMemoryConversations.set(conversation.id, conversation);
+      logger.info('Chat conversation created (in-memory)', {
+        operation: 'create_conversation',
+        conversationId: conversation.id,
+        campaignId,
+      });
+    } else {
+      // Build document data, excluding undefined fields
+      const documentData: any = {
+        messages: [],
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+      };
 
-    logger.info('Chat conversation created', {
-      operation: 'create_conversation',
-      conversationId: conversation.id,
-      campaignId,
-    });
+      // Only include campaignId if it's defined
+      if (campaignId !== undefined) {
+        documentData.campaignId = campaignId;
+      }
+
+      try {
+        await this.firestore.collection('chats').doc(conversation.id).set(documentData);
+        logger.info('Chat conversation created (Firestore)', {
+          operation: 'create_conversation',
+          conversationId: conversation.id,
+          campaignId,
+        });
+      } catch (error) {
+        logger.warn('Failed to save to Firestore, falling back to in-memory', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        this.useInMemoryStore = true;
+        this.inMemoryConversations.set(conversation.id, conversation);
+      }
+    }
 
     return conversation;
   }
@@ -64,6 +100,11 @@ export class ChatService {
    * Get conversation by ID
    */
   async getConversation(conversationId: string): Promise<ChatConversation | null> {
+    if (this.useInMemoryStore || !this.firestore) {
+      const conversation = this.inMemoryConversations.get(conversationId);
+      return conversation || null;
+    }
+
     try {
       const doc = await this.firestore.collection('chats').doc(conversationId).get();
       if (!doc.exists) {
@@ -79,12 +120,14 @@ export class ChatService {
         updatedAt: data.updatedAt?.toDate() || new Date(),
       };
     } catch (error) {
-      logger.error('Failed to get conversation', {
+      logger.error('Failed to get conversation from Firestore, checking in-memory', {
         operation: 'get_conversation',
         conversationId,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      throw error;
+      // Fallback to in-memory
+      const conversation = this.inMemoryConversations.get(conversationId);
+      return conversation || null;
     }
   }
 
@@ -126,6 +169,12 @@ export class ChatService {
     conversationHistory: ChatMessage[]
   ): Promise<string> {
     const startTime = Date.now();
+
+    // If Vertex AI is not available, return a mock response
+    if (!this.generativeModel || !this.vertexai) {
+      logger.warn('Vertex AI not available, returning mock response');
+      return `I received your message: "${message}". However, AI generation is currently unavailable. Please enable Vertex AI to get intelligent responses.`;
+    }
 
     try {
       // Build the prompt with system instructions, context, and history
@@ -200,7 +249,8 @@ Instructions: Based on the retrieved scenes and context, provide a helpful, conv
         message,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      throw new Error(`Response generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Return a fallback response instead of throwing
+      return `I received your message but encountered an error generating a response. Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
   }
 
@@ -247,17 +297,30 @@ Instructions: Based on the retrieved scenes and context, provide a helpful, conv
         },
       };
 
-      // Update conversation in Firestore
+      // Update conversation in storage
       conversation.messages.push(userMsg, assistantMsg);
       conversation.updatedAt = new Date();
 
-      await this.firestore
-        .collection('chats')
-        .doc(conversationId)
-        .update({
-          messages: conversation.messages,
-          updatedAt: conversation.updatedAt,
-        });
+      if (this.useInMemoryStore || !this.firestore) {
+        // Update in memory
+        this.inMemoryConversations.set(conversationId, conversation);
+      } else {
+        try {
+          await this.firestore
+            .collection('chats')
+            .doc(conversationId)
+            .update({
+              messages: conversation.messages,
+              updatedAt: conversation.updatedAt,
+            });
+        } catch (error) {
+          logger.warn('Failed to update Firestore, falling back to in-memory', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+          this.useInMemoryStore = true;
+          this.inMemoryConversations.set(conversationId, conversation);
+        }
+      }
 
       const duration = Date.now() - startTime;
       logger.info('Message sent and response generated', {
@@ -284,20 +347,30 @@ Instructions: Based on the retrieved scenes and context, provide a helpful, conv
    * Delete a conversation
    */
   async deleteConversation(conversationId: string): Promise<void> {
+    if (this.useInMemoryStore || !this.firestore) {
+      this.inMemoryConversations.delete(conversationId);
+      logger.info('Conversation deleted (in-memory)', {
+        operation: 'delete_conversation',
+        conversationId,
+      });
+      return;
+    }
+
     try {
       await this.firestore.collection('chats').doc(conversationId).delete();
 
-      logger.info('Conversation deleted', {
+      logger.info('Conversation deleted (Firestore)', {
         operation: 'delete_conversation',
         conversationId,
       });
     } catch (error) {
-      logger.error('Failed to delete conversation', {
+      logger.error('Failed to delete conversation from Firestore', {
         operation: 'delete_conversation',
         conversationId,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      throw error;
+      // Try deleting from in-memory as fallback
+      this.inMemoryConversations.delete(conversationId);
     }
   }
 
@@ -305,6 +378,29 @@ Instructions: Based on the retrieved scenes and context, provide a helpful, conv
    * List conversations, optionally filtered by campaign
    */
   async listConversations(campaignId?: string, limit: number = 20): Promise<ChatConversation[]> {
+    if (this.useInMemoryStore || !this.firestore) {
+      let conversations = Array.from(this.inMemoryConversations.values());
+
+      // Filter by campaignId if provided
+      if (campaignId) {
+        conversations = conversations.filter(c => c.campaignId === campaignId);
+      }
+
+      // Sort by updatedAt desc
+      conversations.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+
+      // Apply limit
+      conversations = conversations.slice(0, limit);
+
+      logger.debug('Conversations listed (in-memory)', {
+        operation: 'list_conversations',
+        campaignId,
+        count: conversations.length,
+      });
+
+      return conversations;
+    }
+
     try {
       let query = this.firestore
         .collection('chats')
@@ -329,7 +425,7 @@ Instructions: Based on the retrieved scenes and context, provide a helpful, conv
         });
       });
 
-      logger.debug('Conversations listed', {
+      logger.debug('Conversations listed (Firestore)', {
         operation: 'list_conversations',
         campaignId,
         count: conversations.length,
@@ -337,12 +433,19 @@ Instructions: Based on the retrieved scenes and context, provide a helpful, conv
 
       return conversations;
     } catch (error) {
-      logger.error('Failed to list conversations', {
+      logger.error('Failed to list conversations from Firestore, trying in-memory', {
         operation: 'list_conversations',
         campaignId,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      throw error;
+
+      // Fallback to in-memory
+      let conversations = Array.from(this.inMemoryConversations.values());
+      if (campaignId) {
+        conversations = conversations.filter(c => c.campaignId === campaignId);
+      }
+      conversations.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      return conversations.slice(0, limit);
     }
   }
 }
