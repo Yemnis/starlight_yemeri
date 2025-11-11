@@ -13,6 +13,7 @@ import { SceneService } from './scene.service';
 import { EmbeddingService } from './embedding.service';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { promisify } from 'util';
 
 const unlink = promisify(fs.unlink);
@@ -493,7 +494,7 @@ export class VideoService {
       }
 
       // Delete temp directory for scenes
-      const tempDir = path.join('/tmp', videoId);
+      const tempDir = path.join(os.tmpdir(), videoId);
       if (fs.existsSync(tempDir)) {
         const files = await readdir(tempDir);
         for (const file of files) {

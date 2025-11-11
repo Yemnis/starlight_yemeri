@@ -48,13 +48,38 @@ export class StorageService {
 
       return `gs://${this.bucket}/${gcsPath}`;
     } catch (error) {
+      // GCS errors are often plain objects with {code, message, errors} properties
+      let errorMessage = 'Unknown error';
+      let errorCode: number | undefined;
+      
+      if (error && typeof error === 'object') {
+        // Try to extract message from various error formats
+        if ('message' in error && typeof error.message === 'string') {
+          errorMessage = error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        
+        // Extract error code if available
+        if ('code' in error && typeof error.code === 'number') {
+          errorCode = error.code;
+        }
+      }
+      
       logger.error('Failed to upload file to GCS', {
         operation: 'upload_file',
         localPath,
         gcsPath,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
+        errorCode,
+        errorType: typeof error,
+        errorConstructor: error?.constructor?.name,
+        stack: error instanceof Error ? error.stack : undefined,
+        // Capture full error for debugging
+        fullError: error && typeof error === 'object' ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : String(error),
       });
-      throw new Error(`Storage upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      throw new Error(`Storage upload failed: ${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}`);
     }
   }
 
@@ -85,12 +110,29 @@ export class StorageService {
 
       return `gs://${this.bucket}/${gcsPath}`;
     } catch (error) {
+      // Extract error message from GCS error object
+      let errorMessage = 'Unknown error';
+      let errorCode: number | undefined;
+      
+      if (error && typeof error === 'object') {
+        if ('message' in error && typeof error.message === 'string') {
+          errorMessage = error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        if ('code' in error && typeof error.code === 'number') {
+          errorCode = error.code;
+        }
+      }
+      
       logger.error('Failed to stream upload to GCS', {
         operation: 'stream_upload',
         gcsPath,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
+        errorCode,
+        fullError: error && typeof error === 'object' ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : String(error),
       });
-      throw new Error(`Storage stream upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Storage stream upload failed: ${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}`);
     }
   }
 
@@ -109,12 +151,29 @@ export class StorageService {
         gcsPath,
       });
     } catch (error) {
+      // Extract error message from GCS error object
+      let errorMessage = 'Unknown error';
+      let errorCode: number | undefined;
+      
+      if (error && typeof error === 'object') {
+        if ('message' in error && typeof error.message === 'string') {
+          errorMessage = error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        if ('code' in error && typeof error.code === 'number') {
+          errorCode = error.code;
+        }
+      }
+      
       logger.error('Failed to delete file from GCS', {
         operation: 'delete_file',
         gcsPath,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
+        errorCode,
+        fullError: error && typeof error === 'object' ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : String(error),
       });
-      throw new Error(`Storage delete failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Storage delete failed: ${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}`);
     }
   }
 
@@ -134,12 +193,29 @@ export class StorageService {
         fileCount: files.length,
       });
     } catch (error) {
+      // Extract error message from GCS error object
+      let errorMessage = 'Unknown error';
+      let errorCode: number | undefined;
+      
+      if (error && typeof error === 'object') {
+        if ('message' in error && typeof error.message === 'string') {
+          errorMessage = error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        if ('code' in error && typeof error.code === 'number') {
+          errorCode = error.code;
+        }
+      }
+      
       logger.error('Failed to delete folder from GCS', {
         operation: 'delete_folder',
         prefix,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
+        errorCode,
+        fullError: error && typeof error === 'object' ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : String(error),
       });
-      throw new Error(`Storage folder delete failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Storage folder delete failed: ${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}`);
     }
   }
 
@@ -165,12 +241,29 @@ export class StorageService {
 
       return signedUrl;
     } catch (error) {
+      // Extract error message from GCS error object
+      let errorMessage = 'Unknown error';
+      let errorCode: number | undefined;
+      
+      if (error && typeof error === 'object') {
+        if ('message' in error && typeof error.message === 'string') {
+          errorMessage = error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        if ('code' in error && typeof error.code === 'number') {
+          errorCode = error.code;
+        }
+      }
+      
       logger.error('Failed to generate signed URL', {
         operation: 'generate_signed_url',
         gcsPath,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
+        errorCode,
+        fullError: error && typeof error === 'object' ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : String(error),
       });
-      throw new Error(`Signed URL generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Signed URL generation failed: ${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}`);
     }
   }
 
@@ -184,10 +277,27 @@ export class StorageService {
       const [exists] = await file.exists();
       return exists;
     } catch (error) {
+      // Extract error message from GCS error object
+      let errorMessage = 'Unknown error';
+      let errorCode: number | undefined;
+      
+      if (error && typeof error === 'object') {
+        if ('message' in error && typeof error.message === 'string') {
+          errorMessage = error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        if ('code' in error && typeof error.code === 'number') {
+          errorCode = error.code;
+        }
+      }
+      
       logger.error('Failed to check file existence', {
         operation: 'file_exists',
         gcsPath,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
+        errorCode,
+        fullError: error && typeof error === 'object' ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : String(error),
       });
       return false;
     }

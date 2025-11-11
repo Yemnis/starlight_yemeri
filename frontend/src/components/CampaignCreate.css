@@ -1,6 +1,4 @@
 .campaign-create {
-  max-width: 800px;
-  margin: 0 auto;
   padding: 2rem;
 }
 
@@ -192,7 +190,7 @@
 
 /* Campaign Detail View */
 .campaign-detail {
-  padding: 2rem;
+  padding: 1.5rem;
 }
 
 .campaign-detail-header {

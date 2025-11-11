@@ -1,9 +1,10 @@
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
   width: 100%;
   background: #0f0f1e;
+  overflow: hidden;
 }
 
 .app-header {
@@ -11,25 +12,16 @@
   padding: 1.25rem 2rem;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   z-index: 10;
+  flex-shrink: 0;
 }
 
 .header-content {
-  max-width: 1800px;
-  margin: 0 auto;
-}
-
-.logo {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-.logo svg {
-  color: white;
-}
-
-.logo h1 {
+.header-content h1 {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
@@ -40,7 +32,6 @@
   margin: 0;
   font-size: 0.875rem;
   color: rgba(255, 255, 255, 0.9);
-  padding-left: 2.5rem;
 }
 
 .app-main {
@@ -49,8 +40,6 @@
   gap: 0;
   flex: 1;
   overflow: hidden;
-  max-width: 1800px;
-  margin: 0 auto;
   width: 100%;
 }
 
@@ -58,20 +47,20 @@
   background: #1a1a2e;
   border-right: 1px solid #2a2a3e;
   overflow-y: auto;
-  height: calc(100vh - 76px);
+  height: 100%;
 }
 
 .app-content {
   background: #0f0f1e;
   overflow-y: auto;
-  height: calc(100vh - 76px);
+  height: 100%;
 }
 
 .app-sidebar-right {
   background: #1a1a2e;
   border-left: 1px solid #2a2a3e;
   overflow: hidden;
-  height: calc(100vh - 76px);
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -83,9 +72,10 @@
 }
 
 .chat-header {
-  padding: 1.5rem;
+  padding: 1rem 1.5rem;
   border-bottom: 1px solid #2a2a3e;
   background: #16213e;
+  flex-shrink: 0;
 }
 
 .chat-header h2 {

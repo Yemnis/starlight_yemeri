@@ -10,6 +10,7 @@ import { Transcription, Word, TranscriptSegment } from '../types';
 import { StorageService } from './storage.service';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { promisify } from 'util';
 
 const unlink = promisify(fs.unlink);
@@ -132,7 +133,7 @@ export class TranscriptionService {
    * Process video: extract audio, upload to GCS, and transcribe
    */
   async processVideo(videoPath: string, videoId: string): Promise<{ audioUrl: string; transcription: Transcription }> {
-    const tempAudioPath = path.join('/tmp', `${videoId}.mp3`);
+    const tempAudioPath = path.join(os.tmpdir(), `${videoId}.mp3`);
 
     try {
       // Extract audio from video

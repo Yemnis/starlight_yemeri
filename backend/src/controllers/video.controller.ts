@@ -9,6 +9,7 @@ import { AppError, asyncHandler } from '../middleware/error.middleware';
 import { config } from '../config';
 import logger from '../utils/logger';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 
 export class VideoController {
@@ -55,7 +56,7 @@ export class VideoController {
     const videoId = await this.videoService.createVideo(campaignId, file.name, file.size);
 
     // Save file temporarily
-    const tempPath = path.join('/tmp', `${videoId}${path.extname(file.name)}`);
+    const tempPath = path.join(os.tmpdir(), `${videoId}${path.extname(file.name)}`);
     await file.mv(tempPath);
 
     // Start async processing (don't await)

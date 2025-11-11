@@ -10,6 +10,7 @@ import { SceneTimestamp, SceneAnalysis, Transcription } from '../types';
 import { StorageService } from './storage.service';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { promisify } from 'util';
 
 const unlink = promisify(fs.unlink);
@@ -37,7 +38,7 @@ export class SceneService {
    */
   async detectScenes(videoPath: string): Promise<SceneTimestamp[]> {
     const startTime = Date.now();
-    const tempSceneFile = path.join('/tmp', `scenes_${Date.now()}.txt`);
+    const tempSceneFile = path.join(os.tmpdir(), `scenes_${Date.now()}.txt`);
 
     return new Promise((resolve, reject) => {
       let sceneData = '';
@@ -277,7 +278,7 @@ Be specific and detailed. Focus on advertising-relevant elements.`;
     const scenes = await this.detectScenes(videoPath);
 
     // Create temp directory for clips and thumbnails
-    const tempDir = path.join('/tmp', videoId);
+    const tempDir = path.join(os.tmpdir(), videoId);
     await mkdir(tempDir, { recursive: true });
 
     const clips: string[] = [];

@@ -7,6 +7,7 @@ import fileUpload from 'express-fileupload';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import os from 'os';
 import { config } from './config';
 import logger from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
@@ -60,7 +61,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   fileUpload({
     useTempFiles: true,
-    tempFileDir: '/tmp/',
+    tempFileDir: os.tmpdir(),
     limits: { fileSize: config.api.maxVideoSizeMB * 1024 * 1024 },
   })
 );
